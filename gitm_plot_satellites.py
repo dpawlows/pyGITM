@@ -104,6 +104,7 @@ if args['var'] == -1:
 
 if (args["help"]):
 
+    print('Plot a 1D GITM file (1D??? or a satellite file)')
     print('Usage : ')
     print('gitm_plot_satellites.py -var=N -alog ')
     print('       -help [*.bin or a file]')
@@ -126,6 +127,8 @@ if (args["help"]):
     exit()
 
 filelist = args['filelist']
+
+
 vars = [0,1,2]
 vars.extend([int(v) for v in args["var"].split(',')])
 Var = [header['vars'][int(i)] for i in args['var'].split(',')]
@@ -142,17 +145,38 @@ fig = pp.figure()
 minv = 9.e20
 maxv = -9.e20
 alldata = [] 
-
+directories = [] 
+i = 0
 for file in filelist:
+    match = re.match(r'(.*?)\/',filelist[i])
+    if match:
+        directories.append(match.group(1))
     data = read_gitm_one_file(file,vars)
     alldata.append(data) #an array with all sat files data
+    i+=1
 
 alts = data[2][0,0]/1000. #Assumes the altitude grid doesn't change with file
 df = pd.DataFrame(alldata)
 
+#plot options depending on the dataset
+linestyles = ['-','--','-.',':']
+ndirs = 0
+if directories:
+    dirmap = {}
+    i = 0
+    for key in set(directories):
+        dirmap[key] = linestyles[i]
+        i+=1
+    ndirs = len(dirmap)
+
+if ndirs <= 1:
+    linestyle = '-'
+
 colors = ['blue','green','orange','red','yellow']
+
 if not args['average']:
     for ifile in range(len(alldata)):
+        ivar = 0
         for pvar in args["var"].split(','):
             pdata = alldata[ifile][int(pvar)][0,0]
             if args['alog']: 
@@ -162,9 +186,17 @@ if not args['average']:
             if max(pdata) > maxv:
                 maxv = max(pdata)
             
-            ivar = args["var"].index(pvar)
-            line, = pp.plot(pdata,alts,color=colors[ivar])
-    line.set_label('MGITM')
+            # ivar = args["var"].index(pvar)
+            if ndirs > 1:
+                linestyle = dirmap[directories[ifile]]
+            line, = pp.plot(pdata,alts,color=colors[ivar],ls=linestyle)
+            if ndirs <= 1:
+                line.set_label(header["vars"][int(pvar)])
+
+            ivar +=1
+    if ndirs <= 1 and sats:
+        line.set_label('MGITM')
+ 
 else: 
     meandata = df.mean()
     for pvar in args["var"].split(','):
@@ -370,8 +402,12 @@ if sats:
                 color='lightgrey',alpha=.8)
 
 
-pp.legend(loc='upper right',frameon=False)
-# pp.xlabel(varcmap[args['var'].split()[0]]+' Density [m$^{-3}$]')
-pp.xlabel('[e-] [m$^{-3}$]')
+if ndirs > 1:
+    handles = [pp.Line2D([], [], linestyle=value) for value in dirmap.values()]
+    pp.legend(handles, dirmap.keys(),loc='upper right',frameon=False)
+else:
+    pp.legend(loc='upper right',frameon=False)
+pp.xlabel(header['vars'][vars[3]]+' Density [m$^{-3}$]')
+# pp.xlabel('[e-] [m$^{-3}$]')
 pp.ylabel('Altitude (km)')
 pp.savefig('plot.png')

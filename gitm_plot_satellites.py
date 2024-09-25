@@ -157,7 +157,7 @@ for file in filelist:
 
 alts = data[2][0,0]/1000. #Assumes the altitude grid doesn't change with file
 df = pd.DataFrame(alldata)
-
+breakpoint()
 #plot options depending on the dataset
 linestyles = ['-','--','-.',':']
 ndirs = 0

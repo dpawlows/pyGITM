@@ -12,15 +12,16 @@ import sys
 from gitm_routines import *
 import gitm_coordinates as gc 
 import re 
+from scipy.interpolate import CubicSpline 
+from scipy.constants import k as boltzmann
 
 rtod = 180.0/3.141592
-
 def get_args(argv):
 
     filelist = []
     coordinates = 'geographic'
     help = False 
-    minalt = 90
+    minalt = 40
 
     for arg in argv:
         IsFound = 0
@@ -61,7 +62,8 @@ if coordinates not in coordoptions:
     args['help'] = True 
 
 filelist = args['filelist']
-vars = [0,1,2,15,4,5,6,7,8,9,14,16,17,18]
+vars = [0,1,2,15,4,5,6,7,9,14,16,17,18]
+logarithmic = [4,5,6,7,9,14]
 minalt = args['minalt']
 nFiles = len(filelist)
 header = read_gitm_header(args["filelist"])
@@ -83,6 +85,8 @@ if args['help'] or len(filelist) < 1:
 
 
 i = 0
+rhovars = [4,5,6,7,9,14] 
+altitudeGrid = np.arange(60,302,2.5) #default grid is 2.5 km spacing between 60 and 300 km.
 for file in filelist:
 
     data = read_gitm_one_file(file, vars)
@@ -111,9 +115,11 @@ for file in filelist:
     Lons = data[0][:,0,0]
     Lats = data[1][0,:,0]
     
+    #This is the grid that we want to output on
+    newX = Lats[2:-2] 
     totalLons = len(Lons[2:-2])
-    totalLats = len(Lats[2:-2])
-    totalAlts = len(tempalts)
+    totalLats = len(newX)
+    totalAlts = len(altitudeGrid)
 
     f = open(output,'w')
     f.write("#MGITM Results on "+date+" at "+time+" UT."+"\n")
@@ -121,35 +127,138 @@ for file in filelist:
     f.write("#Number of Longitude points: "+str(totalLons)+"\n")
     f.write("#Number of Latitude points: "+str(totalLats)+"\n")
     f.write("#Number of Altitude points: "+str(totalAlts)+"\n")
-    f.write("#Units   Densities: #/m3, temperatures: K, wind speeds: m/s."+"\n")
+    f.write("#Units   Densities: #/m3, temperatures: K, wind speeds: m/s., rho: kg/m3,   pressure: Pa"+"\n")
     myvars = ["".join(data['vars'][i].decode().split()) for i in vars]  
     myvars2 = "   ".join(name_dict[i] for i in myvars)      
-    f.write(myvars2+'   rho'+"\n")
+    f.write(myvars2+'   rho   pressure'+"\n")
     f.write("#START\n")
+
+    gdLats = np.zeros((nLats-4, nAlts-ialtstart-2))
+    gdAlts = np.zeros((nLats-4, nAlts-ialtstart-2))
+    
+ 
+    if coordinates == 'geodetic':
+        #Create the grid
+        #Our geodetic grid will default to the same as the geocentric grid
+        #Longitudes are not affected
+    
+        ilon = 50
+        for ialt in range(ialtstart,nAlts-2):
+            for ilat in range(0,nLats-4):
+                gcoordinates = np.array([[Lats[ilat+2],Lons[ilon],Alts[ialt]]]).transpose()
+                gd = gc.geo2geodetic(gcoordinates,planet='mars')
+                gdLats[ilat,ialt-ialtstart] = gd[0,0]
+                gdAlts[ilat,ialt-ialtstart] = gd[2,0]
+
+    # First, we will interpolate along the horizontal direction
+    # for our interpolation
+    # X = original Aerodetic Latitudes (assumed constant with altitude)
+    # Y = our chosen variable (e.g. Tn or Ti, etc.)
+    # newX = our desired Aerodetic grid
+
+    newData = {k:np.zeros((nLons-4,nLats-4,nAlts-ialtstart-2)) for k in vars[3:]}
+    newData['rho'] = np.zeros((nLons-4,nLats-4,nAlts-ialtstart-2))
+    newData['pressure'] = np.zeros((nLons-4,nLats-4,nAlts-ialtstart-2))
+    
+    for ilon in range(0,nLons - 4):
+        for ialt in range(ialtstart,nAlts-2):
+
+            X = gdLats[:,ialt-ialtstart] #We have data here
+            #Do the interpolation- cubic spline in the horizontal direction for everything
+            Y = gdLats[:,ialt-ialtstart]
+            cs = CubicSpline(X,Y) 
+            newLats = cs(newX)  #Latitude is weird. This is just a validation- newLats should equal newX. We want the grid to be regular.
+
+            for var in vars[3:]:
+                Y = data[var][ilon+2,2:-2,ialt]
+                cs = CubicSpline(X,Y)
+                newData[var][ilon,:,ialt-ialtstart] = cs(newX)
+
+
+            rho = 0
+            numberDensity = 0
+            for i in rhovars:
+                n = data[i][ilon+2,2:-2,ialt]*masses[header['vars'][i]]
+                thisDensity = n * AMU
+                numberDensity = numberDensity + n 
+                rho = rho + thisDensity
+            cs = CubicSpline(X,rho)
+            newData['rho'][ilon,:,ialt-ialtstart] = cs(newX)
+
+            #calculate pressure; p = nkT
+            pressure = boltzmann*numberDensity*data[15][ilon+2,2:-2:,ialt]
+            cs = CubicSpline(X,pressure)
+            newData['pressure'][ilon,:,ialt-ialtstart] = cs(newX)
+
+    # Next, interpolate in the vertical
+    # We have already done the latitudes
+
+    nAltsNew = len(altitudeGrid)
+    gdData = {k:np.zeros((nLons-4,nLats-4,nAltsNew)) for k in vars[3:]}
+    gdData['rho'] = np.zeros((nLons-4,nLats-4,nAltsNew))
+    gdData['pressure'] = np.zeros((nLons-4,nLats-4,nAltsNew))
+
+    for ilon in range(0,nLons-4):
+        for ilat in range(0,nLats-4):
+
+            X = gdAlts[ilat,:]
+            # the "new x" will be simply altitudeGrid, specified above
+
+            for var in vars[3:]:
+                if var not in logarithmic:
+                    Y = newData[var][ilon,ilat,:]
+                    cs = CubicSpline(X,Y)
+                    gdData[var][ilon,ilat,:] = cs(altitudeGrid)
+                else:
+                    Y = np.log(newData[var][ilon,ilat,:])
+                    cs = CubicSpline(X,Y)
+                    gdData[var][ilon,ilat,:] = np.exp(cs(altitudeGrid))
+
+                Y = np.log(newData['rho'][ilon,ilat,:])
+                cs = CubicSpline(X,Y)
+                gdData['rho'][ilon,ilat,:] = np.exp(cs(altitudeGrid))
+                
+                Y = np.log(newData['pressure'][ilon,ilat,:])
+                cs = CubicSpline(X,Y)
+                gdData['pressure'][ilon,ilat,:] = np.exp(cs(altitudeGrid))
+
 
 
     #Begin 3D loop over data cube
-    rhovars = [4,5,6,7,8,9,14]
-    for ialt in range(ialtstart,nAlts-2):
-        for ilat in range(2,nLats-2):
-            for ilon in range(2,nLons-2):
-                if coordinates == 'geodetic':
-                    gcoordinates = np.array([[Lats[ilat],Lons[ilon],Alts[ialt]]]).transpose()
-                    gd = gc.geo2geodetic(gcoordinates,planet='mars')
-                    thisdata = [gd[1,0]*180/np.pi,gd[0,0]*180/np.pi,gd[2,0]] #Lon first
+    # rhovars = [4,5,6,7,8,9,14]
+    # for ialt in range(ialtstart,nAlts-2):
+    #     for ilat in range(2,nLats-2):
+    #         for ilon in range(2,nLons-2):
+    #             if coordinates == 'geodetic':
+    #                 gcoordinates = np.array([[Lats[ilat],Lons[ilon],Alts[ialt]]]).transpose()
+    #                 gd = gc.geo2geodetic(gcoordinates,planet='mars')
+    #                 thisdata = [gd[1,0]*180/np.pi,gd[0,0]*180/np.pi,gd[2,0]] #Lon first
                   
-                else:   
-                    thisdata = [Lons[ilon],Lats[ilat],Alts[ialt]]
+    #             else:   
+    #                 thisdata = [Lons[ilon],Lats[ilat],Alts[ialt]]
                 
+    #             for var in vars[3:]:
+    #                 thisdata.append(data[var][ilon,ilat,ialt])
+    #             rho = 0.0    
+    #             for i in rhovars:
+    #                 thisDensity = data[i][ilon,ilat,ialt]
+    #                 rho += thisDensity                    
+    #             thisdata.append(rho)
+    #             # f.write("    ".join('{:g}'.format(ele) for ele in thisdata)+"\n")
+    #             breakpoint()
+
+
+    for ilon in range(totalLons):
+        for ilat in range(totalLats):
+            for ialt in range(totalAlts):
+                thisdata = [Lons[ilon+2]*rtod,newX[ilat]*rtod,altitudeGrid[ialt]]
                 for var in vars[3:]:
-                    thisdata.append(data[var][ilon,ilat,ialt])
-                rho = 0.0    
-                for i in rhovars:
-                    thisDensity = data[i][ilon,ilat,ialt]
-                    rho += thisDensity                    
-                thisdata.append(rho)
+                    thisdata.append(gdData[var][ilon,ilat,ialt])
+                
+                thisdata.append(gdData['rho'][ilon,ilat,ialt])
+                #calculate and output pressure
+                thisdata.append(gdData['pressure'][ilon,ilat,ialt])
                 f.write("    ".join('{:g}'.format(ele) for ele in thisdata)+"\n")
 
-    i += 1
     f.close()
-    print(ialt-ialtstart,ilat,ilon)
+breakpoint()

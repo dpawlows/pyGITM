@@ -258,6 +258,23 @@ def extract_timestamp(filename,pattern):
 #
 #-----------------------------------------------------------------------------
 
+AMU = 1.66054e-27
+
+mC = 12.011
+mO = 15.9994
+mN = 14.00674
+mAr = 39.948
+
+masses = {"[C]":mC,
+"[O]":mO,
+"[O!D2!N]":2*mO,
+"[CO]":mC + mO,
+"[N!D2!N]":2*mN,
+"[Ar]":mAr,
+"[NO]":mN + mO,
+"[CO!D2!N]":mC + mO
+}
+
 name_dict = {"Altitude":"Altitude",
                      "Ar Mixing Ratio":"Argon Mixing Ratio",
                      "Ar":"Ar Mass Density",

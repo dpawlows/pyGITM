@@ -12,7 +12,7 @@ import sys
 from gitm_routines import *
 import gitm_coordinates as gc 
 import re 
-from scipy.interpolate import CubicSpline 
+from scipy.interpolate import CubicSpline,interp1d
 from scipy.constants import k as boltzmann
 
 rtod = 180.0/3.141592
@@ -171,9 +171,16 @@ for file in filelist:
 
             for var in vars[3:]:
                 Y = data[var][ilon+2,2:-2,ialt]
+
                 cs = CubicSpline(X,Y)
                 newData[var][ilon,:,ialt-ialtstart] = cs(newX)
-
+                if np.min(newData[var][ilon,:,ialt-ialtstart]) < 0 and var in rhovars:
+                    #while rare, it is possible for the spline to give a negative number
+                    #so use linear instead
+                    imin = np.argmin(newData[var][ilon,:,ialt-ialtstart])
+                    Y = data[var][ilon,imin:imin+5,ialt] #get the original data surrounding the negative
+                    od = interp1d(X[imin-2:imin+3],Y)
+                    newData[var][ilon,imin,ialt-ialtstart] = od(newX[imin-1:imin+2])[1]
 
             rho = 0
             numberDensity = 0
@@ -209,11 +216,11 @@ for file in filelist:
                     Y = newData[var][ilon,ilat,:]
                     cs = CubicSpline(X,Y)
                     gdData[var][ilon,ilat,:] = cs(altitudeGrid)
-                else:
+                else:                        
                     Y = np.log(newData[var][ilon,ilat,:])
                     cs = CubicSpline(X,Y)
                     gdData[var][ilon,ilat,:] = np.exp(cs(altitudeGrid))
-
+                 
                 Y = np.log(newData['rho'][ilon,ilat,:])
                 cs = CubicSpline(X,Y)
                 gdData['rho'][ilon,ilat,:] = np.exp(cs(altitudeGrid))
@@ -261,4 +268,3 @@ for file in filelist:
                 f.write("    ".join('{:g}'.format(ele) for ele in thisdata)+"\n")
 
     f.close()
-breakpoint()

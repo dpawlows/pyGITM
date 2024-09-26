@@ -230,31 +230,6 @@ for file in filelist:
                 gdData['pressure'][ilon,ilat,:] = np.exp(cs(altitudeGrid))
 
 
-
-    #Begin 3D loop over data cube
-    # rhovars = [4,5,6,7,8,9,14]
-    # for ialt in range(ialtstart,nAlts-2):
-    #     for ilat in range(2,nLats-2):
-    #         for ilon in range(2,nLons-2):
-    #             if coordinates == 'geodetic':
-    #                 gcoordinates = np.array([[Lats[ilat],Lons[ilon],Alts[ialt]]]).transpose()
-    #                 gd = gc.geo2geodetic(gcoordinates,planet='mars')
-    #                 thisdata = [gd[1,0]*180/np.pi,gd[0,0]*180/np.pi,gd[2,0]] #Lon first
-                  
-    #             else:   
-    #                 thisdata = [Lons[ilon],Lats[ilat],Alts[ialt]]
-                
-    #             for var in vars[3:]:
-    #                 thisdata.append(data[var][ilon,ilat,ialt])
-    #             rho = 0.0    
-    #             for i in rhovars:
-    #                 thisDensity = data[i][ilon,ilat,ialt]
-    #                 rho += thisDensity                    
-    #             thisdata.append(rho)
-    #             # f.write("    ".join('{:g}'.format(ele) for ele in thisdata)+"\n")
-    #             breakpoint()
-
-
     for ilon in range(totalLons):
         for ilat in range(totalLats):
             for ialt in range(totalAlts):

@@ -3,8 +3,8 @@
 #Convert GITM output to ascii for use with M-AMPS
 #Example output file is at https://app.box.com/s/hr6w0i2zsm6az9gzb2s2qysxtjaf5jse/file/840383303910
 # 1.Longitude(degree) 2.Latitude(degree) 3.SZA(degree) 4.Altitude(km) 5.Tn(K) 6.Ti(K) 7.Te(K)
-# 8.nCO2(#/cc) 9.nO(#/cc) 10.nN2(#/cc) 11.nCO(#/cc) 12.nO2P(#/cc) 13.ne(#/cc) 14.UN(m/s)
-# 15.VN(m/s), 16.WN(m/s)
+# 8.nCO2(#/m3) 9.nO(#/m3) 10.nN2(#/m3) 11.nCO(#/m3) 12.nAr($/m3) 13.nO2P(#/m3) 14.ne(#/m3) 15.UN(m/s)
+# 16.VN(m/s), 17.WN(m/s)
 
 #Usage: gitm_bin_to_ascii.py filename(s)
 
@@ -31,7 +31,7 @@ def get_args(argv):
 newargs = get_args(sys.argv)
 
 filelist = newargs['filelist']
-vars = [0,1,2,15,34,33,4,6,7,5, 28, 32, 16, 17, 18]
+vars = [0,1,2,15,34,33,4,6,7,5,9, 28, 32, 16, 17, 18]
 nFiles = len(filelist)
 i = 0
 
@@ -68,7 +68,7 @@ for file in filelist:
     f.write("#Number of Altitude points: "+str(nAlts)+"\n")
     f.write("#Units-Densities: #/m3, temperatures: K, wind velocitiy: m/s."+"\n")
     f.write("#1.Longitude(degree) 2.Latitude(degree) 3.Altitude(km) 4.Tn(K) 5.Ti(K) 6.Te(K) 7.nCO2(#/m3)\
-    8.nO(#/m3) 9.nN2(#/m3) 10.nCO(#/m3) 11.nO2P(#/m3) 12.ne(#/m3) 13.UN(m/s) 14.VN(m/s), 15.WN(m/s)\n")
+    8.nO(#/m3) 9.nN2(#/m3) 10.nCO(#/m3) 11.nO2P(#/m3) 12.nAr(#/m3) 12.ne(#/m3) 13.UN(m/s) 14.VN(m/s), 15.WN(m/s)\n")
 
     f.write("#START\n")
 

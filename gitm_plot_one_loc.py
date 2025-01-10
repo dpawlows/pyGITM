@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as pp
 import matplotlib.dates as mdates
 from matplotlib.gridspec import GridSpec
+from matplotlib import  ticker
 from gitm_routines import *
 import sys
 from marstiming import getMTfromTime
@@ -14,6 +15,20 @@ from marstiming import getMTfromTime
 
 rtod = 180.0/3.141592
 marsDay = 1.02749125 * 86400
+minalt = 100
+maxalt = 250
+
+SMALL_SIZE = 12
+MEDIUM_SIZE = 14
+BIGGER_SIZE = 18
+
+plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
+plt.rc('axes', titlesize=SMALL_SIZE)     # fontsize of the axes title
+plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
+plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
+plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
 def get_args(argv):
 
@@ -30,6 +45,9 @@ def get_args(argv):
     smax = -100.0
     lt = -100
     average = -100.0
+    mini = None
+    maxi = None
+
     help = 0
 
 
@@ -90,6 +108,15 @@ def get_args(argv):
                 smax = int(m.group(1))
                 IsFound = 1
 
+            m = re.match(r'-mini=(.*)',arg)
+            if m:
+                mini = float(m.group(1))
+                IsFound = 1   
+
+            m = re.match(r'-maxi=(.*)',arg)
+            if m:
+                maxi = float(m.group(1))
+                IsFound = 1
 
             m = re.match(r'-alog',arg)
             if m:
@@ -117,7 +144,9 @@ def get_args(argv):
             'smax':smax,
             'diff':diff,
             'lt':lt,
-            'average':average}
+            'average':average,
+            'mini':mini,
+            'maxi':maxi}
 
     return args
 
@@ -177,23 +206,31 @@ if (args["help"]):
 
 filelist = args["filelist"]
 nFiles = len(filelist)
+calcsza = False
+plotsza = False
 if nFiles < 2:
     print('Please enter multiple files')
     exit(1)
 try:
     iSZA = header["vars"].index('SolarZenithAngle')
     vars = [0,1,2,iSZA]
+
 except: 
+    calcsza = True
+    header["vars"].append('SolarZenithAngle')
+    iSZA = header["vars"].index('SolarZenithAngle')
     vars = [0,1,2]
+
 
 # Sort filenames based on year
 # Regular expression pattern to match 3D???_t', and a date and time stamp
-pattern = r'(3D..._t)(\d{6})_(\d{6})'
+pattern = r'(.*)?3D..._t(\d{6})_(\d{6})'
 
 # sorted_filenames = sorted(filelist, \
 #     key=lambda x: extract_year(x,pattern) if extract_year(x,pattern) is not None else float('inf'))
 
-fl = sorted(filelist, key=lambda x: extract_timestamp(x,pattern))
+fl = sorted(filelist, key=lambda x: extract_timestamp(x,pattern))    
+
 filelist = fl 
 
 diff = False
@@ -235,9 +272,28 @@ for file in filelist:
         Lons = data[0][:,0,0]*rtod
         Lats = data[1][0,:,0]*rtod
 
-        ialt1 = find_nearest_index(Alts,90)
-        ialt2 = find_nearest_index(Alts,250)
+        ialt1 = find_nearest_index(Alts,minalt)
+        ialt2 = find_nearest_index(Alts,maxalt)
 
+    if calcsza:
+        data[iSZA] = np.zeros((nLons,nLats,nAlts))
+        ilon = 0
+        for lon in Lons:
+            ilat = 0
+            for lat in Lats:
+                thissza = calculate_sza(lat,lon,AllTimes[-1])
+                data[iSZA][ilat,ilon,:] = thissza
+
+                ilat += 1
+            ilon += 1
+        if plotsza:
+            Lo,La = np.meshgrid(Lons,Lats)
+            pp.figure()
+            cont = pp.contourf(Lo[1:-1,1:-1],La[1:-1,1:-1],data[iSZA][1:-1,1:-1,0],levels=30)
+            pp.colorbar(cont)
+            file = 'sza_{}.png'.format(AllTimes[-1].strftime("%Y%m%d:%H%M%S"))
+            print('Writing file {}...'.format(file))
+            pp.savefig(file)
     if diff:
         stime = str(AllTimes[-1].year)[2:]+str(AllTimes[-1].month).rjust(2,'0')+str(AllTimes[-1].day).rjust(2,'0')+\
             '_'+str(AllTimes[-1].hour).rjust(2,'0')+str(AllTimes[-1].minute).rjust(2,'0')
@@ -254,7 +310,7 @@ for file in filelist:
         for ivar in args['var'].split(','):
             if diff:
                 temp = (data[int(ivar)][ilon,ilat,ialt1:ialt2+1]-background[int(ivar)][ilon,ilat,ialt1:ialt2+1])/ \
-                    background[int(ivar)][ilon,ilat,ialt1:ialt2+1]*100.0
+                background[int(ivar)][ilon,ilat,ialt1:ialt2+1]*100.0
             else:
                 temp = data[int(ivar)][ilon,ilat,ialt1:ialt2+1]          
 
@@ -266,9 +322,17 @@ for file in filelist:
         mask = (AllSZA[-1] >= smin) & (AllSZA[-1] <= smax ) 
         for ivar in args['var'].split(','):
             if diff:
+
                 #Calculate the mean of both sets of data and then calculate the percent difference.
-                mean1 = data[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
-                mean2 = background[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+                if ivar == '2':
+                    mean1 = (data[6][:,:,ialt1:ialt2+1][mask].mean(axis=0)/\
+                             data[4][:,:,ialt1:ialt2+1][mask].mean(axis=0))
+                    mean2 = (background[6][:,:,ialt1:ialt2+1][mask].mean(axis=0)/\
+                             background[4][:,:,ialt1:ialt2+1][mask].mean(axis=0))
+                else:
+                    mean1 = data[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+                    mean2 = background[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+
                 temp = (mean1-mean2)/mean2*100.
 
             else:
@@ -276,6 +340,7 @@ for file in filelist:
 
             AllData[ivar].append(temp)
             # AllData[ivar].append(temp[mask].mean(axis=0))
+
     if args['cut'] == 'lt':
         marstime = getMTfromTime([data['time'].year,data['time'].month,data['time'].day,\
             data['time'].hour,data['time'].minute,data['time'].second])
@@ -293,8 +358,13 @@ for file in filelist:
 
         for ivar in args['var'].split(','):
             if lineplot:
-                AllData[ivar].append(data[int(ivar)][ilon,ilat,ialt])
 
+                if diff:
+                    AllData[ivar].append((data[int(ivar)][ilon,ilat,ialt] -
+                                         background[int(ivar)][ilon,ilat,ialt])/\
+                                         background[int(ivar)][ilon,ilat,ialt]*100.0)
+                else:
+                    AllData[ivar].append(data[int(ivar)][ilon,ilat,ialt])                    
             else:
 
                 if diff:
@@ -302,7 +372,7 @@ for file in filelist:
                         background[int(ivar)][ilon,ilat,ialt1:ialt2+1]*100.0
                 else:
                     temp = data[int(ivar)][ilon,ilat,ialt1:ialt2+1]          
-        
+
                 if averaging:
                     if newday:
                         sum = temp
@@ -329,10 +399,6 @@ for ivar in args['var'].split(','):
 if args['cut']  == 'sza':
     AllSZA = np.array(AllSZA)
 
-# fig, ax = pp.subplots()
-fig = pp.figure(figsize=(8.5,11))
-pp.ylim([90,300])
-
 Alts = Alts[ialt1:ialt2+1]
 
 cmap = 'plasma'
@@ -344,38 +410,98 @@ if averaging:
 else:
     Times = AllTimes 
 
-fig, ax = plt.subplots(len(Var), 1, sharex=True)
+if lineplot and args['cut'] != 'lt':
+    extraplot = 1
+else:
+    extraplot = 0
+
+if args['cut'] == 'lt':
+    figsize = (8,4.5)
+else:
+    figsize = (8,6)
+    
+fig, ax = plt.subplots(np.max([1,len(Var)])+extraplot, 1, sharex=True,figsize=figsize)
+
+nlevels = 30
+
+mini = args['mini']
+maxi = args['maxi']
+
+userrange = False
+if mini != None or maxi != None:
+    userrange = True
+
+hcmaxi = np.asarray([60,30,55])
+hcmini = hcmaxi*-1
 for ivar in args['var'].split(','):
-
+    
     AllData2D = AllData[ivar]
-    if ivar == '3' and (not diff):
+    if ivar == '3' and (not diff) and (not lineplot):
         AllData2D = np.log10(AllData2D)
-        Var[i] = "Log "+ Var[i]
-
-    if lineplot:
-        ax[i].plot(Times,AllData2D)
-        ax[i].set_ylabel(name_dict[Var[i]])
+        Var[i] = "Log "+ name_dict[Var[i]]
     else:
-        cont = ax[i].contourf(Times,Alts,np.transpose(AllData2D),levels=30,cmap=cmap)    
-        if diff:
-            label = '{}\n% Diff'.format(Var[i])
-        else:
-            label = Var[i]
+        Var[i] = name_dict[Var[i]]
 
-        pp.colorbar(cont,ax=ax[i],label=label)
-       
+    if ivar == '2':
+        Var[i] = "O/CO$_2$"
+
+    if nvars > 1:
+        thisax = ax[i]
+    else:
+        thisax = ax 
+    if not userrange:
+        mini = np.min(AllData2D)
+        maxi = np.max(AllData2D)
+
+    if diff:
+        absmax = np.max([np.abs(mini),np.abs(maxi)])
+        mini = -absmax
+        maxi = absmax
+        cmap = pp.get_cmap('twilight_shifted')#.reversed()
         
+    if diff:
+        Var[i] = '{}\n% Diff'.format(Var[i])
+    else:
+        Var[i] = Var[i]
+
+    mini = hcmini[i]
+    maxi = hcmaxi[i]
+    if lineplot:
+         thisax.plot(Times,AllData2D)
+         thisax.set_ylim([mini,maxi])
+         thisax.set_ylabel(Var[i])
+         pp.tight_layout()
+    else:
+        levels = np.linspace(mini,maxi,30)
+        #cont = thisax.contourf(Times,Alts,np.transpose(AllData2D),levels=levels,cmap=cmap)
+        cont = thisax.contourf(Times,Alts,np.transpose(AllData2D),levels=levels,cmap=cmap,\
+                locator=ticker.LogLocator())    
+ 
+        if int(ivar) == 3:
+
+            i250 = np.argmin(np.abs(Alts-250))
+            imax = np.argmax(AllData2D[:,i250])
+            print('Max at time {}'.format(Times[imax].strftime('%Y %m %d:%H %M %S')))
+
+            
+        pp.colorbar(cont,ax=thisax,label=Var[i])
+
+
+    i += 1
+    
+    
+    if args['cut'] != 'lt':
         pp.ylabel('Alt (km)')
 
     # if i < len(Var)-1:
     #     ax.get_xaxis().set_ticklabels([])
     #     breakpoint()
 
-    i += 1
+
 
 pp.xlabel('Time (UT)')
-myFmt = mdates.DateFormatter("%y-%m-%d")
-ax[-1].xaxis.set_major_formatter(myFmt)
+myFmt = mdates.DateFormatter("%H:%M:%S")
+thisax.xaxis.set_major_formatter(myFmt)
 fig.autofmt_xdate()
 
 pp.savefig('plot.png')

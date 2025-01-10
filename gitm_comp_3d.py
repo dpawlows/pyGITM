@@ -16,6 +16,17 @@ import sys
 
 rtod = 180.0/3.141592
 
+SMALL_SIZE = 12
+MEDIUM_SIZE = 16
+BIGGER_SIZE = 22
+
+plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
+plt.rc('axes', titlesize=SMALL_SIZE)     # fontsize of the axes title
+plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
+plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
+plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 #-----------------------------------------------------------------------------
 #
 #-----------------------------------------------------------------------------
@@ -288,6 +299,9 @@ if (cut == 'alt'):
     maskSouth = ((yPos<-45) & (yPos>-90.0))
     DoPlotNorth = np.max(maskNorth)
     DoPlotSouth = np.max(maskSouth)
+    DoPlotNorth = False
+    DoPlotSouth = False
+
     if (DoPlotNorth):
         maxiN = np.max(abs(AllData2D[:,2:-2,maskNorth]))*1.05
         if (Negative):
@@ -301,6 +315,8 @@ if (cut == 'alt'):
         else:
             miniS = np.min(AllData2D[:,2:-2,maskSouth])*0.95
 dr = (maxi-mini)/31
+mini=0
+maxi=40
 levels = np.arange(mini, maxi, dr)
 
 i = 0
@@ -320,11 +336,12 @@ for time in AllTimes:
     shift = ut * 15.0
     print(ut)
 
-    fig = plt.figure(constrained_layout=False,
-                     tight_layout=True, figsize=(10, 8.5))
+#    fig = plt.figure(constrained_layout=False,
+#                     tight_layout=True, figsize=(10, 5.5))
+    fig = plt.figure(tight_layout=True, figsize=(10, 5.5))
 
-    gs1 = GridSpec(nrows=2, ncols=2, wspace=0.0, hspace=0)
-    gs = GridSpec(nrows=2, ncols=2, wspace=0.0, left=0.0, right=0.9)
+    # gs1 = GridSpec(nrows=1, ncols=1, wspace=0.0, hspace=0)
+    # gs = GridSpec(nrows=1, ncols=1, wspace=0.0, left=0.0, right=0.9)
 
     norm = cm.colors.Normalize(vmax=mini, vmin=maxi)
     print(mini)
@@ -341,8 +358,9 @@ for time in AllTimes:
     sTime = time.strftime('%y%m%d_%H%M%S')
     outfile = file+'_'+sTime+'.png'
 
-    ax = fig.add_subplot(gs1[1, :2])
+    ax = fig.add_subplot()
     cax = ax.pcolor(xPos, yPos, d2d, vmin=mini, vmax=maxi, shading='auto', cmap=cmap)
+
 
     if (args["winds"]):
         ax.quiver(xPos,yPos,Ux2d,Uy2d)

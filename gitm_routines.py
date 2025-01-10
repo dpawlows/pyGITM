@@ -234,8 +234,10 @@ def read_gitm_one_file(file_to_read, vars_to_read=-1):
 
 def extract_year(filename,pattern):
     match = re.search(pattern, filename)
+    
     if match:
         year = int(match.group(2)[:2])  # Extract the first two digits as the year
+
         if year < 50:
             # For years less than 50, assume 20xx
             year += 2000
@@ -243,7 +245,9 @@ def extract_year(filename,pattern):
             # For years greater than or equal to 50, assume 19xx
             year += 1900
         return year
+
     else:
+        print('Error')
         return None
 
 def extract_timestamp(filename,pattern):
@@ -253,7 +257,42 @@ def extract_timestamp(filename,pattern):
             '%Y%m%d%H%M%S')
         return timestamp
     else:
+        print("Error")
         return None
+
+
+def calculate_sza(lat, lon, date_time):
+    '''Return sza given position (degrees) and datetime object'''
+
+    lat_rad = np.radians(lat)
+
+    # Constants
+    days_in_year = 365.25
+
+    day_of_year = date_time.timetuple().tm_yday
+
+    # Calculate solar declination (δ)
+    declination = 23.44 * np.cos(np.radians((360 / days_in_year) * (day_of_year + 10)))
+    declination_rad = np.radians(declination)
+
+    # Calculate time in hours and solar hour angle (H)
+    time_of_day = date_time.hour + date_time.minute / 60 + date_time.second / 3600
+    solar_noon = (12.0 - lon) / 15.0  # Adjust solar noon for the location
+
+    hour_angle = (time_of_day - solar_noon) * 15  # 15 degrees per hour
+    hour_angle_rad = np.radians(hour_angle)
+
+    # Calculate the cosine of the solar zenith angle (SZA)
+    cos_sza = (np.sin(lat_rad) * np.sin(declination_rad) +
+               np.cos(lat_rad) * np.cos(declination_rad) * np.cos(hour_angle_rad))
+
+    # Ensure cos_sza is within valid range [-1, 1]
+    # cos_sza = min(1, max(cos_sza, -1))
+
+    # Calculate the solar zenith angle in degrees
+    sza = np.degrees(np.arccos(cos_sza))
+
+    return sza
 #-----------------------------------------------------------------------------
 #
 #-----------------------------------------------------------------------------
@@ -360,5 +399,7 @@ name_dict = {"Altitude":"Altitude",
                      "[N!D2!N]":"[N$_2$]",
                      "[Ar]":"[Ar]",
                      "[NO]":"[NO]",
-                     
+                     "[O!U+!N]":"[O$^+$]",
+                     "[O!D2!U+!N]":"[O$_2^+$]",
+                     "[CO!D2!U+!N]":"[CO$_2^+$]",
                      }

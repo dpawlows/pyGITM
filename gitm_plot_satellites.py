@@ -11,6 +11,9 @@ import pandas as pd
 import ngims 
 import rose
 
+
+minalt = 100 
+
 def get_args(argv):
 
     filelist = []
@@ -144,6 +147,7 @@ fig = pp.figure()
 
 minv = 9.e20
 maxv = -9.e20
+
 alldata = [] 
 directories = [] 
 i = 0
@@ -152,12 +156,16 @@ for file in filelist:
     if match:
         directories.append(match.group(1))
     data = read_gitm_one_file(file,vars)
+
+    if i == 0:
+        alts = data[2][0,0]/1000. #Assumes the altitude grid doesn't change with file
+        iminalt = np.argmin(np.abs(alts-minalt))
     alldata.append(data) #an array with all sat files data
     i+=1
 
-alts = data[2][0,0]/1000. #Assumes the altitude grid doesn't change with file
+
 df = pd.DataFrame(alldata)
-breakpoint()
+
 #plot options depending on the dataset
 linestyles = ['-','--','-.',':']
 ndirs = 0
@@ -178,7 +186,8 @@ if not args['average']:
     for ifile in range(len(alldata)):
         ivar = 0
         for pvar in args["var"].split(','):
-            pdata = alldata[ifile][int(pvar)][0,0]
+            pdata = alldata[ifile][int(pvar)][0,0,iminalt:]
+            breakpoint()
             if args['alog']: 
                 pdata = np.log10(pdata)
             if min(pdata) < minv:
@@ -220,7 +229,7 @@ else:
 
                 stddata = np.log10(stddata)
             pp.fill_betweenx(alts,pdata-stddata,pdata+stddata)
-
+breakpoint()
 if args['min']:
     mini = args['min']
 else:
@@ -237,7 +246,7 @@ maxden = pdata[inearest]
 if plotmaxden:
     pp.plot([-999,1e30],[alts[imaxden],alts[imaxden]],'r--')
 # pp.plot([maxden,maxden],[0,300],'r--',alpha=.7)
-pp.ylim([100,250])
+pp.ylim([minalt,250])
 pp.xlim([mini,maxi])
 
 

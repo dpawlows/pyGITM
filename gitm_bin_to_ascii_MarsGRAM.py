@@ -171,16 +171,37 @@ for file in filelist:
 
             for var in vars[3:]:
                 Y = data[var][ilon+2,2:-2,ialt]
-
                 cs = CubicSpline(X,Y)
                 newData[var][ilon,:,ialt-ialtstart] = cs(newX)
+
                 if np.min(newData[var][ilon,:,ialt-ialtstart]) < 0 and var in rhovars:
                     #while rare, it is possible for the spline to give a negative number
                     #so use linear instead
                     imin = np.argmin(newData[var][ilon,:,ialt-ialtstart])
-                    Y = data[var][ilon,imin:imin+5,ialt] #get the original data surrounding the negative
-                    od = interp1d(X[imin-2:imin+3],Y)
-                    newData[var][ilon,imin,ialt-ialtstart] = od(newX[imin-1:imin+2])[1]
+                    lenvar = len(X)
+                    valuesAfterMin = (lenvar-1) - imin # subtract 1 because we are comparing indices
+
+                    if valuesAfterMin == 0:
+                        #extrapoloate
+                        iend = lenvar
+                        extrapolate = True
+                    else:
+                        iend = imin + min(valuesAfterMin,5)
+
+                    #Y = data[var][ilon,imin:imin+5,ialt] #this caused a problem if the negative number was near the edge
+                    # of the grid
+                    Y = data[var][ilon,imin:iend+1,ialt] #get the original data surrounding the negative
+                    od = interp1d(X[imin-2:imin-2+len(Y)],Y,fill_value='extrapolate')
+                    newData[var][ilon,imin,ialt-ialtstart] = newX[imin-1:imin+2][1]
+                    
+                    if newData[var][ilon,imin,ialt-ialtstart] < 0:
+                        # Still have an issue? Exponential interpolation
+                        Y = np.log10(data[var][ilon,imin:iend+1,ialt]) #get the original data surrounding the negative
+                        od = interp1d(X[imin-2:imin-2+len(Y)],Y,fill_value='extrapolate')
+                        newData[var][ilon,imin,ialt-ialtstart] = 10**newX[imin-1:imin+2][1]
+
+                    # if (ilon == 10 and ialt >= 117):
+                    #     breakpoint(newData[var][ilon,imin,ialt-ialtstart])
 
             rho = 0
             numberDensity = 0

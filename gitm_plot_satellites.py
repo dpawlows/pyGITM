@@ -246,7 +246,6 @@ if plotmaxden:
 # pp.plot([maxden,maxden],[0,300],'r--',alpha=.7)
 pp.ylim([minalt,250])
 pp.xlim([mini,maxi])
-breakpoint()
 
 
 ### Test the average 
@@ -414,7 +413,9 @@ if ndirs > 1:
     pp.legend(handles, dirmap.keys(),loc='upper right',frameon=False)
 else:
     pp.legend(loc='upper right',frameon=False)
-pp.xlabel(header['vars'][vars[3]]+' Density [m$^{-3}$]')
+pp.xlabel(name_dict[header['vars'][vars[3]]])
+pp.xlabel('Density (m$^{-3}$)')
+# pp.xlabel('Production Rate (m$^{-3}s^{-1}$)')
 # pp.xlabel('[e-] [m$^{-3}$]')
 pp.ylabel('Altitude (km)')
 pp.savefig('plot.png')

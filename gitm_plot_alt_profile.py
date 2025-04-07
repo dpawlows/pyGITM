@@ -185,6 +185,7 @@ AllAlts = []
 AllSZA = []
 j = 0
 
+breakpoint()
 data = read_gitm_one_file(file, vars)
     
 [nLons, nLats, nAlts] = data[0].shape

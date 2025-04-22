@@ -202,7 +202,6 @@ AllAlts = []
 AllTimes = []
 j = 0
 for file in filelist:
-
     data = read_gitm_one_file(file, vars)
     if (j == 0):
         [nLons, nLats, nAlts] = data[0].shape

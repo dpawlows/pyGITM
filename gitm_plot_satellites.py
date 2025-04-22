@@ -159,7 +159,7 @@ for file in filelist:
 
     if i == 0:
         alts = data[2][0,0]/1000. #Assumes the altitude grid doesn't change with file
-        iminalt = np.argmin(np.abs(alts-minalt))
+        iminalt = find_nearest_index(alts,minalt)
     alldata.append(data) #an array with all sat files data
     i+=1
 
@@ -187,7 +187,6 @@ if not args['average']:
         ivar = 0
         for pvar in args["var"].split(','):
             pdata = alldata[ifile][int(pvar)][0,0,iminalt:]
-            breakpoint()
             if args['alog']: 
                 pdata = np.log10(pdata)
             if min(pdata) < minv:
@@ -198,7 +197,7 @@ if not args['average']:
             # ivar = args["var"].index(pvar)
             if ndirs > 1:
                 linestyle = dirmap[directories[ifile]]
-            line, = pp.plot(pdata,alts,color=colors[ivar],ls=linestyle)
+            line, = pp.plot(pdata,alts[iminalt:],color=colors[ivar],ls=linestyle)
             if ndirs <= 1:
                 line.set_label(header["vars"][int(pvar)])
 
@@ -217,7 +216,7 @@ else:
         if max(pdata) > maxv:
             maxv = max(pdata)
 
-        pp.plot(pdata,alts,'k',linewidth=2,label='MGITM') 
+        pp.plot(pdata,alts[iminalt:],'k',linewidth=2,label='MGITM') 
 
         if args['stddev']:
             tempdata = df[int(pvar)].to_numpy()
@@ -228,8 +227,7 @@ else:
             if args['alog']: 
 
                 stddata = np.log10(stddata)
-            pp.fill_betweenx(alts,pdata-stddata,pdata+stddata)
-breakpoint()
+            pp.fill_betweenx(alts[iminalt:],pdata-stddata,pdata+stddata)
 if args['min']:
     mini = args['min']
 else:
@@ -241,14 +239,13 @@ else:
     maxi = maxv
 
 imaxden = np.argmax(pdata)
-inearest = find_nearest_index(alts,270)
+inearest = find_nearest_index(alts[iminalt:],270)
 maxden = pdata[inearest]
 if plotmaxden:
     pp.plot([-999,1e30],[alts[imaxden],alts[imaxden]],'r--')
 # pp.plot([maxden,maxden],[0,300],'r--',alpha=.7)
 pp.ylim([minalt,250])
 pp.xlim([mini,maxi])
-
 
 
 ### Test the average 
@@ -416,7 +413,9 @@ if ndirs > 1:
     pp.legend(handles, dirmap.keys(),loc='upper right',frameon=False)
 else:
     pp.legend(loc='upper right',frameon=False)
-pp.xlabel(header['vars'][vars[3]]+' Density [m$^{-3}$]')
+# pp.xlabel(name_dict[header['vars'][vars[3]]])
+pp.xlabel('Heating Rate')
+# pp.xlabel('Production Rate (m$^{-3}s^{-1}$)')
 # pp.xlabel('[e-] [m$^{-3}$]')
 pp.ylabel('Altitude (km)')
 pp.savefig('plot.png')

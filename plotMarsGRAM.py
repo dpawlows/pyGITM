@@ -5,6 +5,7 @@ from matplotlib import pyplot as pp
 import sys 
 import re 
 from gitm_routines import * 
+from gitmasciis import *
 import pandas as pd 
 
 def get_args(argv):
@@ -16,11 +17,11 @@ def get_args(argv):
     min = None 
     max = None 
     alt = 400.0
-    lon = -100.0
-    lat = -100.0
+    lon = None
+    lat = None
     cut = 'loc'
-    smin = -100.0
-    smax = -100.0
+    smin = None
+    smax = None
 
     help = 0
 
@@ -105,51 +106,24 @@ def get_args(argv):
 
     return args
 
-def readheader(filename):
-    f = open(filename,'r')
-    nlats = nlons = nalts = None
-    started = False
-    while not started:
-        line = f.readline()
-        lat_match = re.search(r'Number of Latitude points:\s+(\d+)', line)
-        lon_match = re.search(r'Number of Longitude points:\s+(\d+)', line)
-        alt_match = re.search(r'Number of Altitude points:\s+(\d+)', line)
-        if re.search(r'\bLongitude\b', line) and re.search(r'\bLatitude\b', line) and \
-            re.search(r'\bAltitude\b', line):
-            vars = re.split(r'\s{2,}', line.strip())
-
-        start_match = re.search(r'#START', line)
-
-        if lat_match:
-            nlats = int(lat_match.group(1))
-        if lon_match:
-            nlons = int(lon_match.group(1))
-        if alt_match:
-            nalts = int(alt_match.group(1))
-
-        if start_match:
-            started = True 
-            if not (nlats and nlons and nalts):
-                print("Error finding grid size in {}".format(filename))
-                exit(1)
-            else:
-                return {'nlons':nlons,
-                'nlats':nlats,
-                'nalts':nalts,
-                'vars':vars
-                } 
-
 
 args = get_args(sys.argv)
-header = readheader(args["filelist"][0])
+header = readASCIIheader(args['filelist'][0])
 
-if args['cut'] == 'loc' and args['lon'] > -50:
-    plon = args['lon']
-    plat = args['lat']
-elif args['cut'] == 'sza' and args['smin'] > -50:
+if not args['var']:
+    print('-var is required!')
+    args["help"] = '-h'  
+
+if args['cut'] == 'loc' and args['lon'] is not None and args['lat'] is not None :
+        if args['lon'] < -0:
+            args['lon'] = 360+args['lon']
+        plon = args['lon']
+        plat = args['lat']
+elif args['cut'] == 'sza' and args['smin'] is not None and args['smax'] is not None :
     smin = args['smin']
     smax = args['smax']
 else:
+    print('Location entered incorrectly!')
     args["help"] = '-h'    
 
 if (args["help"]):
@@ -176,8 +150,13 @@ if (args["help"]):
 
     exit()
 
-
+vars = [0,1,2]
+vars.extend([int(v) for v in args["var"].split(',')])
 filelist = args["filelist"]
+nfiles = len(filelist)
+for file in filelist:
+    data = readMarsGRAM(file,vars)
+
 
 
 

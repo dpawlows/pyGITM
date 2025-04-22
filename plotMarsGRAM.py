@@ -7,7 +7,9 @@ import re
 from gitm_routines import * 
 from gitmasciis import *
 import pandas as pd 
+import time 
 
+startTime = time.time()
 def get_args(argv):
 
     filelist = []
@@ -154,10 +156,12 @@ vars = [0,1,2]
 vars.extend([int(v) for v in args["var"].split(',')])
 filelist = args["filelist"]
 nfiles = len(filelist)
-for file in filelist:
-    data = readMarsGRAM(file,vars)
 
+results = process_batch(filelist, vars,max_workers=None)
 
+endTime = time.time()
+print(f"Execution time: {endTime - startTime:.2f} seconds")
 
+breakpoint()
 
 

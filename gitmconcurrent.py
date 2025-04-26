@@ -6,29 +6,22 @@ from tqdm import tqdm
 import os 
 from datetime import datetime
 import marstiming 
+import gitm_routines
 import numpy as np 
 from functools import partial
 import multiprocessing
 
-class FileParsingError(Exception):
-    """Custom exception for header parsing errors."""
-    pass
 
-def readMarsGRAM(file,vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=None,oco2=False):
+def readGITM(file,header, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=None,oco2=False):
+        
     try: 
-        local_vars = vars.copy() #vars is modified to accomodate oco2
-
-        header = readASCIIheader(file)
         filename = os.path.basename(file)
+        if file[-3:] == 'bin':
+            reshaped = read_gitm_one_file(file, vars=-1)
+        else:
+            reshaped = read_gitm_ASCII_onefile(file, vars):
 
-        temp_df = pd.read_csv(file,
-                    delim_whitespace=True,  # matches loadtxt's default behavior
-                    skiprows=header['skiprows'],
-                    header=None,            # since your file has no header row for data
-                    usecols=local_vars)
-                
-        data_array = temp_df.values  # convert entire DataFrame to NumPy array
-        reshaped = data_array.reshape((header['nlons'], header['nlats'], header['nalts'], -1))
+        local_vars = vars.copy() #vars is modified to accomodate oco2
 
         if oco2:
             #We do this before averaging as the O/CO2 is not linear
@@ -115,13 +108,13 @@ def readMarsGRAM(file,vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=N
         print(f"Error processing {file}: {e}")
         return None
 
-def process_batch(files, vars,smin=None,smax=None,zonal=False,lsBinWidth=None, oco2=False,max_workers=None):
+def process_batch(files, header, vars,smin=None,smax=None,zonal=False,lsBinWidth=None, oco2=False,max_workers=None):
     """Function to process a batch of files in parallel."""
     
     if len(vars) < 4:
         raise ValueError("Expected at least 4 variable indices: lon, lat, alt, and 1+ data var")
 
-    reader = partial(readMarsGRAM, vars=vars, smin=smin, smax=smax,zonal=zonal,lsBinWidth=lsBinWidth,oco2=oco2,)
+    reader = partial(readMarsGRAM, header=header, vars=vars, smin=smin, smax=smax,zonal=zonal,lsBinWidth=lsBinWidth,oco2=oco2,)
     
     # --- Auto-tune max_workers ---
     if max_workers is None:
@@ -144,7 +137,7 @@ def process_batch(files, vars,smin=None,smax=None,zonal=False,lsBinWidth=None, o
 
     print(f"[process_batch] Using {max_workers} workers for {len(files)} files...")
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         raw_results = list(tqdm(executor.map(reader,files,chunksize=1),
             total=len(files),desc="Processing files",unit="file"
                 ))
@@ -192,45 +185,6 @@ def process_batch(files, vars,smin=None,smax=None,zonal=False,lsBinWidth=None, o
 
     return final_data
 
-def readASCIIheader(file):
-    nlats = nlons = nalts = None
-    linecount = 0
-    started = False
-    vars = None 
-    with open(file,'r') as f:
 
-        for linecount, line in enumerate(f,start=1):
-            if not line.strip():
-                continue
-
-            if "Number of Latitude points:" in line:
-                nlats = int(line.split(":")[1].strip())
-            if "Number of Longitude points:" in line:
-                nlons = int(line.split(":")[1].strip())
-            if "Number of Altitude points:" in line:
-                nalts = int(line.split(":")[1].strip())
-
-            if 'Longitude' in line and 'Latitude' in line and \
-                'Altitude'in line:
-                vars = re.split(r'\s{2,}', line.strip())
-
-            if '#START' in line:
-                started = True 
-                break 
-
-    if not started:
-        raise FileParsingError("No '#START' line found in file.")
-    if not (nlats and nlons and nalts):
-        raise FileParsingError("Missing grid size information in file header")
-
-    if vars is None:
-        raise FileParsingError("Missing variable names in the header")
-
-    return {'nlons':nlons,
-        'nlats':nlats,
-        'nalts':nalts,
-        'vars':vars,
-        'skiprows': linecount,
-        } 
     
 

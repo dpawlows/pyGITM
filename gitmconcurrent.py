@@ -10,6 +10,7 @@ import numpy as np
 from functools import partial
 import multiprocessing
 
+rtod = 180/np.pi
 
 def readMarsGITM(file, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=None,oco2=False):
         
@@ -18,13 +19,24 @@ def readMarsGITM(file, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=
         time = datetime.strptime(filename[-17:-4],"%y%m%d_%H%M%S")  
 
         if file.endswith('bin'):
-            data = gr.read_gitm_one_file(file, vars=-1)
+            data = gr.read_gitm_one_file(file, vars_to_read=vars)
+            # We are going to get rid of the ghost cells here:
+            for key in list(data.keys()):
+                if isinstance(key, int):  # only process numerical keys, skip 'vars', 'time', etc
+                    arr = data[key]
+                    # Remove ghost cells: slice 2:-2 in each dimension
+                    data[key] = arr[2:-2, 2:-2, 2:-2]
+            
+            alt = data[2][0, 0, :]/1000.
+            data[0] = data[0]*rtod
+            data[1] = data[1]*rtod
+
         else:
-            data = gr.read_gitm_ascii_onefile(file, vars)
+            data = gr.read_gitm_ascii_onefile(file, vars_to_read=vars)
+            alt = data[2][0, 0, :]
         
         lon = data[0][:, 0, 0]  
         lat = data[1][0, :, 0]
-        alt = data[2][0, 0, :]
 
         # Calculate SZA
         timedata = marstiming.getMarsSolarGeometry(time)
@@ -110,7 +122,7 @@ def process_batch(files, vars,smin=None,smax=None,zonal=False,lsBinWidth=None, o
     if max_workers is None:
         cpu_count = multiprocessing.cpu_count()
 
-        # Guess if on SSD (simple, fast test)
+        # Guess if on SSD 
         is_ssd = False
         try:
             diskstat = os.statvfs('.')

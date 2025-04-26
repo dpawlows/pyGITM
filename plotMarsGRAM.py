@@ -3,6 +3,7 @@
 import numpy as np 
 from matplotlib import pyplot as pp 
 import matplotlib.dates as mdates
+from matplotlib.colors import LogNorm
 import sys 
 import re 
 from gitm_routines import * 
@@ -27,6 +28,7 @@ def get_args(argv):
     smax = None
     binwidth = None 
     oco2 = None
+    serial = None
 
     help = 0
 
@@ -55,6 +57,11 @@ def get_args(argv):
                 help = True
                 IsFound = 1
             
+            m = re.match(r'-serial',arg)
+            if m:
+                serial = True
+                IsFound = 1
+
             m = re.match(r'-oco2',arg)
             if m:
                 oco2 = True
@@ -116,7 +123,8 @@ def get_args(argv):
         'smin':smin,
         'smax':smax,
         'binls':binwidth,
-        'oco2':oco2
+        'oco2':oco2,
+        'serial':serial
     }
 
     return args
@@ -156,7 +164,11 @@ def plotSZA(data):
 
 
 args = get_args(sys.argv)
-header = read_ascii_header(args['filelist'][0])
+if args['filelist'][0].endswith('bin'):
+    header = read_gitm_header(args['filelist'][:1])
+else:
+    header = read_ascii_header(args['filelist'][0])
+
 zonal = False 
 
 if not args['var']:
@@ -166,12 +178,13 @@ if not args['var']:
 smin = None
 smax = None
 
-if len(args['filelist']) == 1:
-    if args['alt'] is None:
-        print("To plot a single file, specify the altitude")
-        args['help'] = '-h'
-    else:
-        palt = args['alt']
+# if len(args['filelist']) == 1:
+#     if args['alt'] is None:
+#         print("To plot a single file, specify the altitude")
+#         args['help'] = '-h'
+
+if args['cut'] == 'alt':
+    palt = args['alt']
 
 elif args['cut'] == 'loc':
     if args.get('lon') is None or args.get('lat') is None:
@@ -254,6 +267,7 @@ if (args["help"]):
     print('   -alog: plot the log of the variable')
     print('   -binls=binwidth: running average over binwidth degrees ls')
     print('   -oco2: calculate and plot O/CO2 ratio')
+    print('   -serial: run the code in serial (good for testing)')
     print('   Non-KW arg: file(s)')
 
     iVar = 0
@@ -267,25 +281,24 @@ if (args["help"]):
 filelist = args["filelist"]
 nfiles = len(filelist)
 
-#process the files in parallel
-vars_working = vars.copy()
-data = process_batch(filelist, vars_working,max_workers=16,smin=smin,
-   smax=smax,zonal=zonal,lsBinWidth=args['binls'],oco2=oco2) 
+if args['serial']:
+    # For serial testing only:
+    lsBinWidth = None
+    data = []
+    for file in filelist[:1]:
+        data.append(readMarsGITM(file, vars, smin=smin, smax=smax, zonal=zonal, lsBinWidth=lsBinWidth, oco2=args['oco2']))
+else:
+    #process the files in parallel
+    vars_working = vars.copy()
+    data = process_batch(filelist, vars_working,max_workers=16,smin=smin,
+    smax=smax,zonal=zonal,lsBinWidth=args['binls'],oco2=oco2) 
 
-#####################################
-#For serial testing only:
-# lsBinWidth = None
-# data = []
-# for file in filelist[:1]:
-#    data.append(readMarsGITM(file, vars, smin=smin, smax=smax, zonal=zonal, lsBinWidth=lsBinWidth, oco2=args['oco2']))
-#####################################
+
 if oco2:
     #vars is modified in readMarsGram if we add O/CO2 so we need to also update varnames
     vars.append(max(vars)+1)
     varnames.append('O/CO$_2$')
 
-endTime = time.time()
-print(f"Execution time: {endTime - startTime:.2f} seconds")
 
 # ---------------------------------------------------------------------- 
 ### Plotting
@@ -296,7 +309,7 @@ times = [entry['time'] for entry in data]
 alts = data[0]['alt']
 
 for var_index, varname in zip(vars[3:], varnames[3:]):
-    fig, ax = pp.subplots(figsize=(10,6))
+    fig, ax = pp.subplots(figsize=(10,5))
 
     safe_varname = (varname.replace('$', '')
                              .replace('{', '')
@@ -306,32 +319,59 @@ for var_index, varname in zip(vars[3:], varnames[3:]):
                              .replace(']', '')
                              .lower())
 
-    if len(filelist) == 1:
-        entry = data[0]
-        lon = entry['lon']
-        lat = entry['lat']
-        alt_index = np.argmin(np.abs(data[0]['alt'] - palt))
+    if 'oco_2' in safe_varname:
+        my_norm = LogNorm(vmin=0.1, vmax=10)  # adjust limits if needed
+    else:
+        my_norm = None  # no special scaling
 
-        Z = entry[var_index][..., alt_index].T   # shape (lat, lon)
-        Lon, Lat = np.meshgrid(lon, lat, indexing='xy')
+    if args['cut'] != 'sza' and args['cut'] != 'zonal':
+        for entry in data:
+            
+            lon = entry['lon']
+            lat = entry['lat']
+            alt_index = np.argmin(np.abs(data[0]['alt'] - palt))
 
-        pcm = ax.contourf(Lon, Lat, Z, cmap=cmap,levels=30)
-        cbar = fig.colorbar(pcm, ax=ax)
-        cbar.set_label(varname)
-        ax.set_xlabel("Longitude (°E)")
-        ax.set_ylabel("Latitude (°N)")
-        ax.set_title(f"{varname} at {int(alts[alt_index])} km")
-        pp.savefig(f'{safe_varname}_altcut.png')
+            Z = entry[var_index][..., alt_index].T   # shape (lat, lon)
+            Lon, Lat = np.meshgrid(lon, lat, indexing='xy')
+            cmap = 'plasma'
+            # pcm = ax.contourf(Lon, Lat, Z, cmap=cmap,levels=30)
+            pcm = pp.pcolormesh(Lon, Lat, Z,
+                                    shading='auto', cmap=cmap)
+    
+            cbar = fig.colorbar(pcm, ax=ax)
+            cbar.set_label(varname)
+            
+            if (args['cut'] == 'alt'):
+                ax.set_xlabel("Longitude (°E)")
+                ax.set_ylabel("Latitude (°N)")
+                title = time.strftime('%b %d, %Y %H:%M:%S')+'; Alt : '+"%.2f" % alts[alt_index] + ' km'
+            ax.set_title(title)
+
+            sTime = entry['time'].strftime('%y%m%d_%H%M%S')
+            pp.savefig(f'{safe_varname}_{args["cut"]}_{sTime}+.png')
+
+        # plotSZA(data[0])
+
 
     else:
         if args['cut'] == 'sza':
             values = np.array([entry[var_index] for entry in data])
             T,A = np.meshgrid(times,alts)
+
+            mask = A > 250  
+            masked_values = np.ma.masked_where(mask, values.T)
             # pcm = pp.contourf(times,alts,values.T,levels=30)
-            pcm = pp.pcolormesh(times, alts, values.T,
-                                shading='auto', cmap=cmap)
+            pcm = pp.pcolormesh(times, alts, masked_values,
+                                shading='auto', cmap=cmap,
+                                norm=my_norm)
+            if 'oco_2' in safe_varname:
+                contour_levels = [0.5, 1.0, 2.0]  # Example: highlight O/CO2 near 1
+                pp.contour(times, alts, masked_values, 
+                        levels=contour_levels,
+                        colors='white', linewidths=1.0,linestyles='dashed')
 
             pp.colorbar(pcm, label=f"{varname} (SZA-filtered avg)")
+            ax.set_ylim(np.min(A),250)
             ax.set_xlabel("Time")
             ax.set_ylabel("Altitude (km)")
             ax.set_title(f"SZA-filtered Horizontal Average of {varname}")
@@ -341,9 +381,15 @@ for var_index, varname in zip(vars[3:], varnames[3:]):
 
             times = [entry['time'] for entry in data]
             lat = data[0]['lat']
+            breakpoint()
             values = np.array([entry[var_index][:, alt_index] for entry in data])
-
             pcm = pp.pcolormesh(times, lat, values.T, shading='auto', cmap=cmap)
+            # if 'oco_2' in safe_varname:
+            #     contour_levels = [0.5, 1.0, 2.0]  # Example: highlight O/CO2 near 1
+            #     pp.contour(times, lat, values.T, 
+            #             levels=contour_levels,
+            #             colors='white', linewidths=1.0,linestyles='dashed')
+
 
             pp.colorbar(pcm, label=f"{varname} (Zonal Avg) \n{int(palt)} km")
             ax.set_xlabel("Time")
@@ -368,8 +414,8 @@ for var_index, varname in zip(vars[3:], varnames[3:]):
         pp.savefig(f"{safe_varname}-{args['cut']}.png",dpi=150)
 # ----------------------------------------------------------------------    
 
-
-# plotSZA(data[0])
+endTime = time.time()
+print(f"Execution time: {endTime - startTime:.2f} seconds")
 
 
 

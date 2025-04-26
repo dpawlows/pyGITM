@@ -39,7 +39,6 @@ def read_gitm_header(file):
             file = filelist[0]
 
     else:
-
         filelist = glob(file[0])
         file = filelist[0]
 
@@ -147,7 +146,7 @@ def read_ascii_header(file):
 
 def read_gitm_one_file(file_to_read, vars_to_read=-1):
 
-    print("Reading file : "+file_to_read)
+    # print("Reading file : "+file_to_read)
 
     data = {}
     data["version"] = 0
@@ -252,10 +251,10 @@ def read_gitm_ascii_onefile(file, vars_to_read=-1):
     
     data_array = temp_df.values
     reshaped = data_array.reshape((header['nlons'], header['nlats'], header['nalts'], -1))
-    
+    vars_to_read.sort() #Helps ensure var mapping doesn't get screwed up
+
     for i, var_index in enumerate(vars_to_read):
         data[var_index] = reshaped[:, :, :, i]
-    
     return data
 
 def extract_year(filename,pattern):

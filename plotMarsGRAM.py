@@ -6,7 +6,7 @@ import matplotlib.dates as mdates
 import sys 
 import re 
 from gitm_routines import * 
-from gitmasciis import *
+from gitmconcurrent import *
 import pandas as pd 
 import time 
 
@@ -156,7 +156,7 @@ def plotSZA(data):
 
 
 args = get_args(sys.argv)
-header = readASCIIheader(args['filelist'][0])
+header = read_ascii_header(args['filelist'][0])
 zonal = False 
 
 if not args['var']:
@@ -270,14 +270,14 @@ nfiles = len(filelist)
 #process the files in parallel
 vars_working = vars.copy()
 data = process_batch(filelist, vars_working,max_workers=16,smin=smin,
-    smax=smax,zonal=zonal,lsBinWidth=args['binls'],oco2=oco2) #limit to 32 threads
+   smax=smax,zonal=zonal,lsBinWidth=args['binls'],oco2=oco2) 
 
 #####################################
 #For serial testing only:
-#lsBinWidth = None
-#data = []
-#for file in filelist:
-#    data.append(readMarsGRAM(file, vars, smin=smin, smax=smax, zonal=zonal, lsBinWidth=lsBinWidth, oco2=args['oco2']))
+# lsBinWidth = None
+# data = []
+# for file in filelist[:1]:
+#    data.append(readMarsGITM(file, vars, smin=smin, smax=smax, zonal=zonal, lsBinWidth=lsBinWidth, oco2=args['oco2']))
 #####################################
 if oco2:
     #vars is modified in readMarsGram if we add O/CO2 so we need to also update varnames
@@ -321,7 +321,7 @@ for var_index, varname in zip(vars[3:], varnames[3:]):
         ax.set_xlabel("Longitude (°E)")
         ax.set_ylabel("Latitude (°N)")
         ax.set_title(f"{varname} at {int(alts[alt_index])} km")
-        pp.savefig(f'{safe_varname}.png')
+        pp.savefig(f'{safe_varname}_altcut.png')
 
     else:
         if args['cut'] == 'sza':

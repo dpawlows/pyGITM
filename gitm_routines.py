@@ -9,6 +9,13 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as dates
 from pylab import cm
 import re 
+import pandas as pd 
+
+#-----------------------------------------------------------------------------
+
+class FileParsingError(Exception):
+    """Custom exception for header parsing errors."""
+    pass
 
 #-----------------------------------------------------------------------------
 #
@@ -93,66 +100,46 @@ def read_gitm_header(file):
 #-----------------------------------------------------------------------------
 #
 #-----------------------------------------------------------------------------
+def read_ascii_header(file):
+    nlats = nlons = nalts = None
+    linecount = 0
+    started = False
+    vars = None 
+    with open(file,'r') as f:
 
-def read_gitm_headers():
+        for linecount, line in enumerate(f,start=1):
+            if not line.strip():
+                continue
 
-    filelist = sorted(glob('./3DALL*.bin'))
+            if "Number of Latitude points:" in line:
+                nlats = int(line.split(":")[1].strip())
+            if "Number of Longitude points:" in line:
+                nlons = int(line.split(":")[1].strip())
+            if "Number of Altitude points:" in line:
+                nalts = int(line.split(":")[1].strip())
 
-    header = {}
-    header["nFiles"] = len(filelist)
-    header["version"] = 0
-    header["nLons"] = 0
-    header["nLats"] = 0
-    header["nAlts"] = 0
-    header["nVars"] = 0
-    header["vars"] = []
-    header["time"] = []
-    header["filename"] = []
+            if 'Longitude' in line and 'Latitude' in line and \
+                'Altitude'in line:
+                vars = re.split(r'\s{2,}', line.strip())
 
-    for file in filelist:
+            if '#START' in line:
+                started = True 
+                break 
 
-        header["filename"].append(file)
+    if not started:
+        raise FileParsingError("No '#START' line found in file.")
+    if not (nlats and nlons and nalts):
+        raise FileParsingError("Missing grid size information in file header")
 
-        f=open(file, 'rb')
+    if vars is None:
+        raise FileParsingError("Missing variable names in the header")
 
-        # This is all reading header stuff:
-
-        endChar='>'
-        rawRecLen=f.read(4)
-        recLen=(unpack(endChar+'l',rawRecLen))[0]
-        if (recLen>10000)or(recLen<0):
-            # Ridiculous record length implies wrong endian.
-            endChar='<'
-            recLen=(unpack(endChar+'l',rawRecLen))[0]
-
-        # Read version; read fortran footer+header.
-        header["version"] = unpack(endChar+'d',f.read(recLen))[0]
-
-        (oldLen, recLen)=unpack(endChar+'2l',f.read(8))
-
-        # Read grid size information.
-        (header["nLons"],header["nLats"],header["nAlts"]) = unpack(endChar+'lll',f.read(recLen))
-        (oldLen, recLen)=unpack(endChar+'2l',f.read(8))
-
-        # Read number of variables.
-        header["nVars"]=unpack(endChar+'l',f.read(recLen))[0]
-        (oldLen, recLen)=unpack(endChar+'2l',f.read(8))
-
-        # Collect variable names.
-        for i in range(header["nVars"]):
-            v = unpack(endChar+'%is'%(recLen),f.read(recLen))[0]
-            if (file == filelist[0]):
-                header["vars"].append(v.decode('utf-8').replace(" ",""))
-            (oldLen, recLen)=unpack(endChar+'2l',f.read(8))
-
-        # Extract time.
-        (yy,mm,dd,hh,mn,ss,ms)=unpack(endChar+'lllllll',f.read(recLen))
-        header["time"].append(datetime(yy,mm,dd,hh,mn,ss,ms*1000))
-        # print(header["time"][-1])
-
-        f.close()
-
-    return header
+    return {'nlons':nlons,
+        'nlats':nlats,
+        'nalts':nalts,
+        'vars':vars,
+        'skiprows': linecount,
+        } 
 
 #-----------------------------------------------------------------------------
 #
@@ -232,6 +219,45 @@ def read_gitm_one_file(file_to_read, vars_to_read=-1):
 
     return data
 
+
+
+def read_gitm_ascii_onefile(file, vars_to_read=-1):
+    """Read gitm ASCII file."""
+
+    data = {}
+    data["version"] = 0  # ASCII may not have version info
+    data["nLons"] = 0
+    data["nLats"] = 0
+    data["nAlts"] = 0
+    data["nVars"] = 0
+    data["time"] = None
+    data["vars"] = []
+
+    header = read_ascii_header(file)
+    data["nLons"] = header["nlons"]
+    data["nLats"] = header["nlats"]
+    data["nAlts"] = header["nalts"]
+    data["vars"] = header["vars"]
+    data["nVars"] = len(header["vars"])
+    
+    # If vars_to_read not passed, read all variables
+    if vars_to_read[0] == -1:
+        vars_to_read = list(range(data["nVars"]))
+    
+    temp_df = pd.read_csv(file,
+                delim_whitespace=True,
+                skiprows=header['skiprows'],
+                header=None,
+                usecols=vars_to_read)
+    
+    data_array = temp_df.values
+    reshaped = data_array.reshape((header['nlons'], header['nlats'], header['nalts'], -1))
+    
+    for i, var_index in enumerate(vars_to_read):
+        data[var_index] = reshaped[:, :, :, i]
+    
+    return data
+
 def extract_year(filename,pattern):
     match = re.search(pattern, filename)
     
@@ -249,6 +275,7 @@ def extract_year(filename,pattern):
     else:
         print('Error')
         return None
+
 
 def extract_timestamp(filename,pattern):
     match = re.search(pattern, filename)

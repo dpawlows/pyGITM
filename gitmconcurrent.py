@@ -1,87 +1,80 @@
 import re 
 from collections import defaultdict
-import pandas as pd 
 import concurrent.futures
 from tqdm import tqdm 
 import os 
 from datetime import datetime
 import marstiming 
-import gitm_routines
+import gitm_routines as gr
 import numpy as np 
 from functools import partial
 import multiprocessing
 
 
-def readGITM(file,header, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=None,oco2=False):
+def readMarsGITM(file, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=None,oco2=False):
         
     try: 
         filename = os.path.basename(file)
-        if file[-3:] == 'bin':
-            reshaped = read_gitm_one_file(file, vars=-1)
-        else:
-            reshaped = read_gitm_ASCII_onefile(file, vars):
-
-        local_vars = vars.copy() #vars is modified to accomodate oco2
-
-        if oco2:
-            #We do this before averaging as the O/CO2 is not linear
-            nvars = reshaped.shape[-1]
-            expanded = np.zeros((*reshaped.shape[:-1], nvars + 1))
-            expanded[..., :nvars] = reshaped
-            reshaped = expanded
-            #Add oco2 ratio to the reshaped array
-            o_header_index = header['vars'].index('[O]')
-            co2_header_index = header['vars'].index('[CO$_2$]')
-            try:
-                #map from header['vars'] index to the corresponding position in vars
-                o_reshaped_index = local_vars.index(o_header_index)  
-                co2_reshaped_index = local_vars.index(co2_header_index)
-            except ValueError:
-                raise ValueError("O or CO2 was not selected in -var and is needed to calculate O/CO2.")
-
-            O = reshaped[:, :, :, o_reshaped_index]
-            CO2 = reshaped[:, :, :, co2_reshaped_index]
-
-            # Safely calculate the ratio
-            oco2_ratio = np.where(CO2 != 0, O / CO2, np.nan)
-
-            # Append it to reshaped along new last dimension
-            with np.errstate(divide='ignore', invalid='ignore'):
-                reshaped[..., -1] = O / CO2
-            reshaped[..., -1][CO2 == 0] = np.nan
-
-            new_index = max(local_vars) + 1
-            local_vars.append(new_index)
-            header['vars'].append('O/CO$_2$')
-
-        lon = reshaped[:, 0, 0, 0]  
-        lat = reshaped[0, :, 0, 1]
-        alt = reshaped[0, 0, :, 2]
         time = datetime.strptime(filename[-17:-4],"%y%m%d_%H%M%S")  
 
-        # Need to calculate sza at all points on the grid and save to the df
+        if file.endswith('bin'):
+            data = gr.read_gitm_one_file(file, vars=-1)
+        else:
+            data = gr.read_gitm_ascii_onefile(file, vars)
+        
+        lon = data[0][:, 0, 0]  
+        lat = data[1][0, :, 0]
+        alt = data[2][0, 0, :]
+
+        # Calculate SZA
         timedata = marstiming.getMarsSolarGeometry(time)
         Lon,Lat = np.meshgrid(lon,lat,indexing='ij') #to conform to typical GITM (lon,lat) structure
         sza = marstiming.getSZAfromTime(timedata,Lon,Lat)
-        
-        result = {'time':time,
-        'alt': alt,
+
+        result = {
+            'time':time,
+            'alt': alt,
         }
 
-        ls_bin = None 
         if lsBinWidth is not None:
             ls_bin = int(timedata.ls // lsBinWidth) * lsBinWidth
             result['ls_bin'] = ls_bin
 
-        for i, var_index in enumerate(local_vars[3:]):
-            var_data = reshaped[:, :, :, i + 3]  # (lon, lat, alt)
+        local_vars = vars.copy() #vars is modified to accomodate oco2
+
+        if oco2:
+            # Calculate O/CO2
+            # We do this before averaging as the O/CO2 is not linear
+            varnames = data["vars"]
+            try:
+                #map from header['vars'] index to the corresponding position in vars
+                o_index = varnames.index('[O]')  
+                co2_index = varnames.index('[CO$_2$]')
+            except ValueError:
+                raise ValueError("O or CO2 was not selected in -var and is needed to calculate O/CO2.")
+
+            O = np.asarray(data[o_index])
+            CO2 = np.asarray(data[co2_index])
+
+            # Append it to reshaped along new last dimension
+            with np.errstate(divide='ignore', invalid='ignore'):
+                oco2_ratio = O / CO2
+                oco2_ratio[CO2 == 0] = np.nan
+
+            new_index = max(local_vars) + 1
+            data[new_index] = oco2_ratio
+            local_vars.append(new_index)
+            data["vars"].append('O/CO$_2$')
+       
+        for var_index in local_vars[3:]:  # skipping lon, lat, alt
+            var_data = data[var_index]  # shape (lon, lat, alt)
 
             # Only average if SZA bounds provided
             if smin is not None and smax is not None:
                 sza_mask = (sza >= smin) & (sza <= smax)
                 profile = []
 
-                for k in range(header['nalts']):
+                for k in range(len(alt)):
                     values = var_data[:, :, k][sza_mask]
                     profile.append(np.nan if values.size == 0 else np.nanmean(values))
 
@@ -97,10 +90,7 @@ def readGITM(file,header, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWid
                 result['lat'] = lat
                 result['sza'] = sza
                 
-                result[var_index] = reshaped[:, :, :, i + 3]  # shape: (lon, lat, alt)
-
- 
-        del temp_df, data_array, reshaped  # help GC free memory early
+                result[var_index] = var_data
 
         return result 
     
@@ -108,13 +98,13 @@ def readGITM(file,header, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWid
         print(f"Error processing {file}: {e}")
         return None
 
-def process_batch(files, header, vars,smin=None,smax=None,zonal=False,lsBinWidth=None, oco2=False,max_workers=None):
+def process_batch(files, vars,smin=None,smax=None,zonal=False,lsBinWidth=None, oco2=False,max_workers=None):
     """Function to process a batch of files in parallel."""
     
     if len(vars) < 4:
         raise ValueError("Expected at least 4 variable indices: lon, lat, alt, and 1+ data var")
 
-    reader = partial(readMarsGRAM, header=header, vars=vars, smin=smin, smax=smax,zonal=zonal,lsBinWidth=lsBinWidth,oco2=oco2,)
+    reader = partial(readMarsGITM, vars=vars, smin=smin, smax=smax,zonal=zonal,lsBinWidth=lsBinWidth,oco2=oco2,)
     
     # --- Auto-tune max_workers ---
     if max_workers is None:

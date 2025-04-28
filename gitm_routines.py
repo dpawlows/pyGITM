@@ -369,7 +369,7 @@ name_dict = {"Altitude":"Altitude",
                      "[O(!U2!NP)!U+!N]":"[O($^2$P)] ",
                      "[O(!U3!NP)]":"[O($^3$P)] ",
                      "[O_4SP_!U+!N]":"[O($^4$SP)$^+$] ",
-                     "RadCooling":"Radiative Cooling", "Rho":"Neutral Density",
+                     "RadCooling":"Radiative Cooling", "Rho":"Rho",
                      "Temperature":"T$_n$", "V!Di!N (east)":"v$_{east}$",
                      "V!Di!N(north)":"v$_{north}$", "V!Di!N(up)":"v$_{up}$",
                      "V!Dn!N(east)":"u$_{east}$",
@@ -428,4 +428,23 @@ name_dict = {"Altitude":"Altitude",
                      "[O!U+!N]":"[O$^+$]",
                      "[O!D2!U+!N]":"[O$_2^+$]",
                      "[CO!D2!U+!N]":"[CO$_2^+$]",
+                     "[He]":"[He]",
+                     "[N]":"[N]",
+                     "[H]":"[H]",
+                     "[N(2D)]":"[N(2D)]",
+                     "V!Dn!N(up,CO!D2!N)":"V$_$n(up,CO$_2$)"
                      }
+
+def clean_varname(varname):
+
+    cleanvar = (varname.strip().replace('$', '')
+                             .replace('{', '')
+                             .replace('}', '')
+                             .replace('/', '')
+                             .replace('!D','_')
+                             .replace('!N','')
+                             .replace('!U','')
+                             .replace(" ","")
+    )
+
+    return cleanvar

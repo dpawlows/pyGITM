@@ -15,7 +15,8 @@ startTime = time.time()
 def get_args(argv):
 
     filelist = []
-    var = -1
+    var = None
+    verbose = False
     help = False
     alog = False
     min = None 
@@ -29,6 +30,7 @@ def get_args(argv):
     binwidth = None 
     oco2 = None
     serial = None
+    zonal = None
 
     help = 0
 
@@ -61,6 +63,11 @@ def get_args(argv):
             if m:
                 serial = True
                 IsFound = 1
+            
+            m = re.match(r'-subsolar',arg)
+            if m:
+                subsola = True
+                IsFound = 1
 
             m = re.match(r'-oco2',arg)
             if m:
@@ -71,7 +78,12 @@ def get_args(argv):
             if m:
                 alog = True
                 IsFound = 1
-            
+
+            m = re.match(r'--verbose',arg)
+            if m:
+                verbose = True
+                IsFound = 1
+
             m = re.match(r'-cut=(.*)',arg)
             if m:
                 cut = m.group(1)
@@ -106,6 +118,11 @@ def get_args(argv):
             if m:
                 binwidth = int(m.group(1))
                 IsFound = 1
+            
+            m = re.match(r'-zonal=(.*)',arg)
+            if m:
+                zonal = m.group(1)
+                IsFound = 1
 
             if IsFound==0 and not(arg==argv[0]):
                 filelist.append(arg)
@@ -124,7 +141,9 @@ def get_args(argv):
         'smax':smax,
         'binls':binwidth,
         'oco2':oco2,
-        'serial':serial
+        'serial':serial,
+        'verbose':verbose,
+        'zonal':zonal,
     }
 
     return args
@@ -164,16 +183,18 @@ def plotSZA(data):
 
 
 args = get_args(sys.argv)
+verbose = args['verbose']
+
 if args['filelist'][0].endswith('bin'):
     header = read_gitm_header(args['filelist'][:1])
 else:
     header = read_ascii_header(args['filelist'][0])
 
 zonal = False 
-
-if not args['var']:
+lsBinWidth = None
+if args['var'] is None:
     print('-var is required!')
-    args["help"] = '-h'  
+    exit(1)
 
 smin = None
 smax = None
@@ -208,7 +229,15 @@ elif args['cut'] == 'zonal':
         args['help'] = '-h'
     else:
         palt = args['alt']
-        zonal = True
+        if args['zonal']:
+            zonal = args['zonal']
+        else:
+            try: 
+                lsBinWidth = args['binls']
+                zonal = True
+            except:
+                print("zonal averaging requires either -zonal=lt [or subsolar] or -binls=binwidth")
+                args['help'] = '-h'            
 
 else:
     print(f"Invalid cut type: {args['cut']}")
@@ -217,11 +246,12 @@ else:
 vars = [0,1,2]
 vars.extend([int(v) for v in args["var"].split(',')])
 varnames = [header['vars'][i] for i in vars]
+
 oco2 = False
 if args['oco2']:
     # Normalize varnames (remove LaTeX for comparison)
-    clean_varnames = [v.replace('$', '').replace('{', '').replace('}', '') for v in varnames]
-    clean_header_vars = [v.replace('$', '').replace('{', '').replace('}', '') for v in header['vars']]
+    clean_varnames = [clean_varname(v) for v in varnames]
+    clean_header_vars = [clean_varname(v) for v in header['vars']]
 
     # Check if [O] and [CO2] already included
     o_present =  '[O]' in clean_varnames
@@ -249,6 +279,7 @@ if args['oco2']:
             print("O or CO2 not available to calculate O/CO2")
             args["help"] = '-h'
 
+
 if (args["help"]):
 
     print('Usage : ')
@@ -268,6 +299,8 @@ if (args["help"]):
     print('   -binls=binwidth: running average over binwidth degrees ls')
     print('   -oco2: calculate and plot O/CO2 ratio')
     print('   -serial: run the code in serial (good for testing)')
+    print('   -zonal=lt [or subsolar]: take zonal average at a fixed lt or subsolar point')
+    print('   --verbose: verbose')
     print('   Non-KW arg: file(s)')
 
     iVar = 0
@@ -281,17 +314,28 @@ if (args["help"]):
 filelist = args["filelist"]
 nfiles = len(filelist)
 
+if filelist[0].endswith('bin'):
+    #fix GITM variable names, but only if we aren't reading an ascii.
+    varnames = [name_dict[var] for var in varnames]
+
+# ---------------------------------------------------------------------- 
+# Get the data
+# ---------------------------------------------------------------------- 
 if args['serial']:
-    # For serial testing only:
+    ### For serial testing only:
     lsBinWidth = None
     data = []
     for file in filelist[:1]:
-        data.append(readMarsGITM(file, vars, smin=smin, smax=smax, zonal=zonal, lsBinWidth=lsBinWidth, oco2=args['oco2']))
+        data.append(readMarsGITM(file, vars, smin=smin, smax=smax, zonal=zonal, lsBinWidth=lsBinWidth, 
+        oco2=args['oco2'],verbose=verbose))
+
+    if args['cut'] == 'zonal':
+        data = zonal_fixed_ave(data, args['zonal'])
 else:
     #process the files in parallel
     vars_working = vars.copy()
     data = process_batch(filelist, vars_working,max_workers=16,smin=smin,
-    smax=smax,zonal=zonal,lsBinWidth=args['binls'],oco2=oco2) 
+    smax=smax,zonal=zonal,lsBinWidth=lsBinWidth,oco2=oco2,verbose=verbose) 
 
 
 if oco2:
@@ -299,10 +343,9 @@ if oco2:
     vars.append(max(vars)+1)
     varnames.append('O/CO$_2$')
 
-
 # ---------------------------------------------------------------------- 
 ### Plotting
-
+# ---------------------------------------------------------------------- 
 cmap = 'turbo'
 
 times = [entry['time'] for entry in data]
@@ -311,13 +354,7 @@ alts = data[0]['alt']
 for var_index, varname in zip(vars[3:], varnames[3:]):
     fig, ax = pp.subplots(figsize=(10,5))
 
-    safe_varname = (varname.replace('$', '')
-                             .replace('{', '')
-                             .replace('}', '')
-                             .replace('/', '')
-                             .replace('[', '')
-                             .replace(']', '')
-                             .lower())
+    safe_varname = clean_varname(varname)
 
     if 'oco_2' in safe_varname:
         my_norm = LogNorm(vmin=0.1, vmax=10)  # adjust limits if needed
@@ -375,26 +412,30 @@ for var_index, varname in zip(vars[3:], varnames[3:]):
             ax.set_xlabel("Time")
             ax.set_ylabel("Altitude (km)")
             ax.set_title(f"SZA-filtered Horizontal Average of {varname}")
-        elif args['cut'] == 'zonal' and args['alt'] is not None:
 
-            alt_index = np.argmin(np.abs(data[0]['alt'] - palt))
-
+        elif args['cut'] == 'zonal':
+            alt_index = np.argmin(np.abs(data[0]['alt'] - palt)) # time-alt plot
             times = [entry['time'] for entry in data]
             lat = data[0]['lat']
-            breakpoint()
+
             values = np.array([entry[var_index][:, alt_index] for entry in data])
             pcm = pp.pcolormesh(times, lat, values.T, shading='auto', cmap=cmap)
-            # if 'oco_2' in safe_varname:
-            #     contour_levels = [0.5, 1.0, 2.0]  # Example: highlight O/CO2 near 1
-            #     pp.contour(times, lat, values.T, 
-            #             levels=contour_levels,
-            #             colors='white', linewidths=1.0,linestyles='dashed')
-
-
             pp.colorbar(pcm, label=f"{varname} (Zonal Avg) \n{int(palt)} km")
+
             ax.set_xlabel("Time")
             ax.set_ylabel("Latitude (°N)")
-            ax.set_title(f"Time–Latitude of {varname} (Zonal Avg)")
+            if args['binls']:
+                avetype = f"Ls Bin: {args['binls']}"
+            elif args['zonal'] is not None:
+                try:
+                    lt = int(args['zonal'])
+                    avetype = f"({lt} LT)"
+                except ValueError: 
+                    avetype = f"({args['zonal']})"
+                    
+            else:
+                avetype = ""
+            ax.set_title(f"{varname}: Zonal Avg {avetype}")
 
         pp.xticks(rotation=45) 
         pp.tight_layout() 

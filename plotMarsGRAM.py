@@ -10,6 +10,7 @@ from gitm_routines import *
 from gitmconcurrent import *
 import pandas as pd 
 import time 
+import pickle
 
 startTime = time.time()
 def get_args(argv):
@@ -19,8 +20,8 @@ def get_args(argv):
     verbose = False
     help = False
     alog = False
-    min = None 
-    max = None 
+    mini = None 
+    maxi = None 
     alt = None
     lon = None
     lat = None
@@ -46,12 +47,12 @@ def get_args(argv):
 
             m = re.match(r'-min=(.*)',arg)
             if m:
-                min = float(m.group(1))
+                mini = m.group(1)
                 IsFound = 1
 
             m = re.match(r'-max=(.*)',arg)
             if m:
-                max = float(m.group(1))
+                maxi = m.group(1)
                 IsFound = 1
             
             m = re.match(r'-h',arg)
@@ -79,7 +80,7 @@ def get_args(argv):
                 alog = True
                 IsFound = 1
 
-            m = re.match(r'--verbose',arg)
+            m = re.match(r'-verbose',arg)
             if m:
                 verbose = True
                 IsFound = 1
@@ -108,7 +109,7 @@ def get_args(argv):
             if m:
                 smin = int(m.group(1))
                 IsFound = 1   
-
+            
             m = re.match(r'-smax=(.*)',arg)
             if m:
                 smax = int(m.group(1))
@@ -131,8 +132,6 @@ def get_args(argv):
         'var':var,
         'help':help,
         'alog':alog,
-        'min':min,
-        'max':max,
         'cut':cut,
         'lat':lat,
         'lon':lon,
@@ -144,6 +143,8 @@ def get_args(argv):
         'serial':serial,
         'verbose':verbose,
         'zonal':zonal,
+        'mini':mini,
+        'maxi':maxi,
     }
 
     return args
@@ -229,7 +230,16 @@ elif args['cut'] == 'zonal':
         args['help'] = '-h'
     else:
         palt = args['alt']
-        if args['zonal']:
+        if args['zonal'] == 'sza':
+            # Zonal average using per-file SZA averaging
+            if args.get('smin') is None or args.get('smax') is None:
+                print("Zonal SZA averaging requires -smin and -smax")
+                args['help'] = '-h'
+            else:
+                smin = args['smin']
+                smax = args['smax']
+                zonal = args['zonal']
+        elif args['zonal']:
             zonal = args['zonal']
         else:
             try: 
@@ -292,15 +302,15 @@ if (args["help"]):
     print('   -lon=longitude: longitude in degrees (closest) (cut=loc)')
     print('   -smin=minsza: minimum solar zenith angle (cut=sza)')
     print('   -smax=maxsza: maximum solar zenigh angle (cut=sza)')
-    print('   -min=min: minimum value to plot')
-    print('   -max=max: maximum value to plot')
+    print('   -min=min: minimum value to plot (can be a list, like -var)')
+    print('   -max=max: maximum value to plot (can be a list, like -var)')
     print('   -alt=alt: altitude to plot (if a single file or cut=zonal)')
     print('   -alog: plot the log of the variable')
     print('   -binls=binwidth: running average over binwidth degrees ls')
     print('   -oco2: calculate and plot O/CO2 ratio')
     print('   -serial: run the code in serial (good for testing)')
-    print('   -zonal=lt [or subsolar]: take zonal average at a fixed lt or subsolar point')
-    print('   --verbose: verbose')
+    print('   -zonal=[lt, subsolar, sza]: take zonal average at a fixed lt, subsolar point , or using sza average')
+    print('   -verbose: verbose')
     print('   Non-KW arg: file(s)')
 
     iVar = 0
@@ -312,7 +322,25 @@ if (args["help"]):
 
 
 filelist = args["filelist"]
+filelist.sort(key=parse_filename)
 nfiles = len(filelist)
+
+# Allows specification of the plot range
+vmin_map = {}
+vmax_map = {}
+
+if args['mini']:
+    minv = args['mini'].split(',')
+    for i, val in enumerate(minv):
+        if i < len(vars): # first 3 don't count
+            vmin_map[vars[i+3]] = val
+
+if args['maxi']:
+    maxv = args['maxi'].split(',')
+    for i, val in enumerate(maxv):
+        if i < len(vars): # first 3 don't count
+            vmax_map[vars[i+3]] = val
+
 
 if filelist[0].endswith('bin'):
     #fix GITM variable names, but only if we aren't reading an ascii.
@@ -325,7 +353,7 @@ if args['serial']:
     ### For serial testing only:
     lsBinWidth = None
     data = []
-    for file in filelist[:1]:
+    for file in filelist[:]:
         data.append(readMarsGITM(file, vars, smin=smin, smax=smax, zonal=zonal, lsBinWidth=lsBinWidth, 
         oco2=args['oco2'],verbose=verbose))
 
@@ -337,6 +365,12 @@ else:
     data = process_batch(filelist, vars_working,max_workers=16,smin=smin,
     smax=smax,zonal=zonal,lsBinWidth=lsBinWidth,oco2=oco2,verbose=verbose) 
 
+    if args['zonal'] == 'subsolar' or args['zonal'] == 'sza':
+        picklefile = f'1Ddata_{data[0]["time"].strftime("%Y%m%d")}_{data[-1]["time"].strftime("%Y%m%d")}.pkl'
+        with open(picklefile, 'wb') as f:
+            pickle.dump(data, f)
+    
+        print(f"Zonally processed data saved to {picklefile}")
 
 if oco2:
     #vars is modified in readMarsGram if we add O/CO2 so we need to also update varnames
@@ -346,15 +380,20 @@ if oco2:
 # ---------------------------------------------------------------------- 
 ### Plotting
 # ---------------------------------------------------------------------- 
-cmap = 'turbo'
+# cmap = 'turbo'
+cmap = 'plasma'
 
 times = [entry['time'] for entry in data]
 alts = data[0]['alt']
+plotdim = ""
+
 
 for var_index, varname in zip(vars[3:], varnames[3:]):
     fig, ax = pp.subplots(figsize=(10,5))
 
     safe_varname = clean_varname(varname)
+    vmin = vmin_map.get(var_index, None)
+    vmax = vmax_map.get(var_index, None)
 
     if 'oco_2' in safe_varname:
         my_norm = LogNorm(vmin=0.1, vmax=10)  # adjust limits if needed
@@ -373,7 +412,7 @@ for var_index, varname in zip(vars[3:], varnames[3:]):
             cmap = 'plasma'
             # pcm = ax.contourf(Lon, Lat, Z, cmap=cmap,levels=30)
             pcm = pp.pcolormesh(Lon, Lat, Z,
-                                    shading='auto', cmap=cmap)
+                                    shading='auto', cmap=cmap,vmin=vmin,vmax=vmax)
     
             cbar = fig.colorbar(pcm, ax=ax)
             cbar.set_label(varname)
@@ -400,11 +439,11 @@ for var_index, varname in zip(vars[3:], varnames[3:]):
             # pcm = pp.contourf(times,alts,values.T,levels=30)
             pcm = pp.pcolormesh(times, alts, masked_values,
                                 shading='auto', cmap=cmap,
-                                norm=my_norm)
+                                norm=my_norm,vmin=vmin,vmax=vmax)
             if 'oco_2' in safe_varname:
                 contour_levels = [0.5, 1.0, 2.0]  # Example: highlight O/CO2 near 1
                 pp.contour(times, alts, masked_values, 
-                        levels=contour_levels,
+                        levels=contour_levels,vmin=vmin,vmax=vmax,
                         colors='white', linewidths=1.0,linestyles='dashed')
 
             pp.colorbar(pcm, label=f"{varname} (SZA-filtered avg)")
@@ -417,13 +456,37 @@ for var_index, varname in zip(vars[3:], varnames[3:]):
             alt_index = np.argmin(np.abs(data[0]['alt'] - palt)) # time-alt plot
             times = [entry['time'] for entry in data]
             lat = data[0]['lat']
+            
+            first_var = data[0][var_index]
 
-            values = np.array([entry[var_index][:, alt_index] for entry in data])
-            pcm = pp.pcolormesh(times, lat, values.T, shading='auto', cmap=cmap)
-            pp.colorbar(pcm, label=f"{varname} (Zonal Avg) \n{int(palt)} km")
+            if args['zonal'] != 'subsolar' and args['zonal'] != 'sza':
+                values = np.array([entry[var_index][:, alt_index] for entry in data])
+                pcm = pp.pcolormesh(times, lat, values.T, shading='auto', cmap=cmap,vmin=vmin,vmax=vmax)
+                pp.colorbar(pcm, label=f"{varname} (Zonal Avg) \n{int(palt)} km")
+
+                ax.set_ylabel("Latitude (°N)")
+                plottype = ""
+                plotend = ""
+
+            else:
+                # Subsolar or sza tracking (only 1D: alt)
+                values = np.array([entry[var_index][alt_index] for entry in data])
+
+                ax.plot(times, values, linestyle='-')
+                if vmin is not None or vmax is not None:
+                    ax.set_ylim(bottom=vmin, top=vmax)
+                ax.set_ylabel(f"{varname}")
+
+                if smin:
+                    plottype = 'SZA avg '
+                else:
+                    plottype = "Subsolar "
+                plotend = f"at {int(palt)} km"
+                plotdim = f"-1D_{args['zonal']}"
+
 
             ax.set_xlabel("Time")
-            ax.set_ylabel("Latitude (°N)")
+
             if args['binls']:
                 avetype = f"Ls Bin: {args['binls']}"
             elif args['zonal'] is not None:
@@ -431,11 +494,11 @@ for var_index, varname in zip(vars[3:], varnames[3:]):
                     lt = int(args['zonal'])
                     avetype = f"({lt} LT)"
                 except ValueError: 
-                    avetype = f"({args['zonal']})"
+                    avetype = f"({args['zonal']}) "
                     
             else:
                 avetype = ""
-            ax.set_title(f"{varname}: Zonal Avg {avetype}")
+            ax.set_title(f"{plottype}{varname}: Zonal Avg {avetype}{plotend}")
 
         pp.xticks(rotation=45) 
         pp.tight_layout() 
@@ -452,11 +515,14 @@ for var_index, varname in zip(vars[3:], varnames[3:]):
         ax2.set_xlabel("Solar Longitude (Ls)")
         pp.subplots_adjust(top=0.85) #make room for the top axis
         
-        pp.savefig(f"{safe_varname}-{args['cut']}.png",dpi=150)
+        ax = autoscale_axis(ax,axis='y')
+        
+        pp.savefig(f"{safe_varname}-{args['cut']}{plotdim}.png",dpi=150)
 # ----------------------------------------------------------------------    
 
 endTime = time.time()
 print(f"Execution time: {endTime - startTime:.2f} seconds")
+
 
 
 

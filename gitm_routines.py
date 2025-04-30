@@ -10,7 +10,7 @@ import matplotlib.dates as dates
 from pylab import cm
 import re 
 import pandas as pd 
-
+import os
 #-----------------------------------------------------------------------------
 
 class FileParsingError(Exception):
@@ -286,6 +286,39 @@ def extract_timestamp(filename,pattern):
         print("Error")
         return None
 
+def parse_filename(filepath):
+    #parse filename for sorting
+    filename = os.path.basename(filepath)
+    base = filename.split('.')[0]  # remove extension
+    parts = base.split('_')
+    
+    # Handle formats
+    if parts[0].startswith('GITM'):
+        # Format: GITM_YYMMDD_HHMMSS
+        yymmdd = parts[1]
+        hhmmss = parts[2]
+    elif parts[0].startswith('3D'):
+        # Format: 3D???_tYYMMDD_HHMMSS
+        if not parts[1].startswith('t'):
+            raise ValueError(f"Expected 't' in second part of filename {filename}")
+        yymmdd = parts[1][1:]  # Skip the 't'
+        hhmmss = parts[2]
+    else:
+        raise ValueError(f"Unrecognized filename format: {filename}")
+
+    # Parse components
+    yy = int(yymmdd[0:2])
+    mo = int(yymmdd[2:4])
+    dd = int(yymmdd[4:6])
+    hh = int(hhmmss[0:2])
+    mi = int(hhmmss[2:4])
+    ss = int(hhmmss[4:6])
+
+    # Expand the year
+    year = 1900 + yy if yy >= 90 else 2000 + yy
+
+    # Return a datetime object
+    return datetime(year, mo, dd, hh, mi, ss)
 
 def calculate_sza(lat, lon, date_time):
     '''Return sza given position (degrees) and datetime object'''
@@ -448,3 +481,83 @@ def clean_varname(varname):
     )
 
     return cleanvar
+
+def autoscale_axis(ax, axis='y', digits=1, base_label=None,units=None, fontsize=10, italic=False,fixed_digits=None):
+    """
+    Automatically rescales axis tick labels and adds a multiplier like ×10ⁿ.
+
+    Parameters:
+    - ax: matplotlib Axes object
+    - axis: 'x' or 'y'
+    - digits: number of decimal digits to show on ticks
+    - offset: (x, y) tuple in Axes coords for multiplier label
+    - fontsize: size of multiplier text
+    - italic: if True, uses italic style
+    """
+    assert axis in ['x', 'y'], "axis must be 'x' or 'y'"
+
+    # Get current tick values
+    ticks = ax.get_yticks() if axis == 'y' else ax.get_xticks()
+    ticks = ticks[np.isfinite(ticks)]
+    if len(ticks) == 0:
+        return  # avoid errors with empty ticks
+
+    # Determine order of magnitude
+    max_val = max(abs(ticks.min()), abs(ticks.max()))
+    if max_val == 0:
+        exponent = 0
+    else:
+        exponent = int(np.floor(np.log10(max_val)))
+
+    # No need to scale if exponent is close to 0
+    if abs(exponent) < 4:
+        return  # skip rescaling if not worth it
+
+    scale = 10 ** exponent
+
+    scaled_ticks = ticks / scale
+    if fixed_digits is not None:
+        digits = fixed_digits
+    else:
+        max_scaled = max(abs(scaled_ticks.min()), abs(scaled_ticks.max()))
+        if max_scaled >= 100:
+            digits = 0
+        elif max_scaled >= 10:
+            digits = 1
+        elif max_scaled >= 1:
+            digits = 2
+        elif max_scaled >= 0.1:
+            digits = 3
+        else:
+            digits = 4
+
+   # Apply tick formatting
+    formatted_ticks = [f"{val:.{digits}f}" for val in scaled_ticks]
+    if axis == 'y':
+        ax.ticklabel_format(axis='y', style='plain')
+        ax.set_yticks(ticks)  # Freeze tick positions
+        ax.set_yticklabels(formatted_ticks)
+    else:
+        ax.ticklabel_format(axis='x', style='plain')
+        ax.set_xticks(ticks)  # Freeze tick positions
+        ax.set_xticklabels(formatted_ticks)
+
+    # Build new axis label
+    exponent_str = rf"$\times 10^{{{exponent}}}$"
+    style = 'italic' if italic else 'normal'
+
+    if base_label is None:
+        base_label = ax.get_ylabel() if axis == 'y' else ax.get_xlabel()
+
+    if units:
+        full_label = rf"{base_label} ({exponent_str} {units})"
+    else:
+        full_label = rf"{base_label} ({exponent_str})"
+
+    # Set the new axis label
+    if axis == 'y':
+        ax.set_ylabel(full_label, fontsize=fontsize, style=style)
+    else:
+        ax.set_xlabel(full_label, fontsize=fontsize, style=style)
+
+    return ax

@@ -16,16 +16,6 @@ deg_to_hours = 1/15.0
 
 def readMarsGITM(file, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=None,oco2=False,verbose=False):
 
-    subsolar = False
-    try:
-        lt_target = int(zonal)
-        lt_width = 1
-        half_width = lt_width / 2.0
-    except:
-        if zonal == 'subsolar':
-            subsolar = True
-        lt_target = None
-
     try: 
         filename = os.path.basename(file)
         time = datetime.strptime(filename[-17:-4],"%y%m%d_%H%M%S")  
@@ -33,7 +23,6 @@ def readMarsGITM(file, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=
         if file.endswith('bin'):
             data = gr.read_gitm_one_file(file, vars_to_read=vars)
             
-
             # We are going to get rid of the ghost cells here:
             for key in list(data.keys()):
                 if isinstance(key, int):  # only process numerical keys, skip 'vars', 'time', etc
@@ -55,16 +44,39 @@ def readMarsGITM(file, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=
         lon = data[0][:, 0, 0]  
         lat = data[1][0, :, 0]
 
-        # Calculate SZA
+        # Calculate various geometry parameters
         timedata = marstiming.getMarsSolarGeometry(time)
         Lon,Lat = np.meshgrid(lon,lat,indexing='ij') #to conform to typical GITM (lon,lat) structure
         sza = marstiming.getSZAfromTime(timedata,Lon,Lat)
+        local_time_1d =  (timedata.MTC + lon * deg_to_hours) % 24 
+        
+        # Determine processing mode
+        mode = 'full_3D'
+        lt_target = None
+        lt_width = 1
+        half_width = lt_width / 2.0
 
-        # When using processpoolexecutor we can't send custom classes (e.g. timedata)... for some reason. Only basic types.
+        if smin is not None and smax is not None:
+            mode = 'sza_average'
+        elif isinstance(zonal, str):
+            if zonal.lower() == 'subsolar':
+                mode = 'subsolar'
+            else:
+                try:
+                    lt_target = int(zonal)
+                    mode = 'local_time_average'
+                except ValueError:
+                    pass  # ignore invalid strings
+        elif isinstance(zonal, int):
+            mode = 'local_time_average'
+            lt_target = zonal
+
+        #Prepare result container
         result = {
             'time':time,
             'alt': alt,
             'sol':timedata.sol,
+            'year':timedata.year,
             'MTC':timedata.MTC,
             'Ls':timedata.ls
         }
@@ -73,8 +85,8 @@ def readMarsGITM(file, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=
             ls_bin = int(timedata.ls // lsBinWidth) * lsBinWidth
             result['ls_bin'] = ls_bin
 
+        # Add O/CO2 if requested        
         local_vars = vars.copy() #vars is modified to accomodate oco2
-
         if oco2:
             # Calculate O/CO2
             # We do this before averaging as the O/CO2 is not linear
@@ -99,14 +111,13 @@ def readMarsGITM(file, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=
             data[new_index] = oco2_ratio
             local_vars.append(new_index)
             data["vars"].append('O/CO$_2$')
-       
-        local_time_1d =  (timedata.MTC + lon * deg_to_hours) % 24 
 
+        # Process variables based on input mode
         for var_index in local_vars[3:]:  # skipping lon, lat, alt
             var_data = data[var_index]  # shape (lon, lat, alt)
 
-            # Only average if SZA bounds provided
-            if smin is not None and smax is not None:
+            if mode == 'sza_average':
+                result['lat'] = lat  # Save lat array for consistency if needed
                 sza_mask = (sza >= smin) & (sza <= smax)
                 profile = []
 
@@ -116,45 +127,42 @@ def readMarsGITM(file, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=
 
                 result[var_index] = np.array(profile)
             
-            elif zonal:
+            elif mode == 'local_time_average':
                 result['lat'] = lat
-                if lt_target is None:
-                    if not subsolar:
-                        # Compute mean over longitude axis (axis 0)
-                        result[var_index] = np.mean(var_data, axis=0)  # shape (lat, alt)
-                    else: 
-                        sslon = timedata.subSolarLon
-                        sslat = timedata.solarDec
-                        breakpoint()
+                dlt = np.abs((local_time_1d - lt_target + 12) % 24 - 12)
+                lt_mask = dlt <= half_width
+                good_lon_idx = np.where(lt_mask)[0]
+                if good_lon_idx.size > 0:
+                    selected = var_data[good_lon_idx, :, :]
+                    result[var_index] = np.nanmean(selected, axis=0)
                 else:
-                    # we are averaing over onlt certain lt values
-                    dlt = np.abs((local_time_1d - lt_target + 12) % 24 - 12)
-                    lt_mask_1d = dlt <= half_width  # (nlon,)
-                    good_lon_idx = np.where(lt_mask_1d)[0] 
+                    result[var_index] = np.full((len(lat), len(alt)), np.nan)
 
-                    if good_lon_idx.size > 0:
-                        var_selected = var_data[good_lon_idx, :, :]  # (n_good_lon, nlat, nalt)
-                        var_avg_lon = np.nanmean(var_selected, axis=0)  # (nlat, nalt)
-                    else:
-                        var_avg_lon = np.full((nlat, nalt), np.nan)
+            elif mode == "subsolar":
+                sslon = timedata.subSolarLon
+                sslat = timedata.solarDec
 
-                    result[var_index] = var_avg_lon
+                # Find the closest lon/lat grid points
+                ilon = np.argmin(np.abs(lon - sslon))
+                ilat = np.argmin(np.abs(lat - sslat))
+
+                profile = var_data[ilon, ilat, :]
+                result[var_index] = profile
+                result['lat'] = lat  # Save lat array for consistency if needed
 
             else:
                 # Include grid info and full variable arrays
                 result['lon'] = lon
                 result['lat'] = lat
                 result['sza'] = sza
-                
                 result[var_index] = var_data
 
         if verbose:
             print(f"[readMarsGITM] {filename}: Sol={result['sol']:.1f}, Ls={result['Ls']:.1f}, MTC={result['MTC']:.2f}")
 
-
         del data
         gc.collect()
-        
+
         return result 
     
     except Exception as e:
@@ -166,7 +174,7 @@ def zonal_fixed_ave(raw_results,zonal,lsBinWidth = None):
 
     if not raw_results:
         return []
-    
+
     if lsBinWidth is not None:
         # Bin by Ls
         binned = defaultdict(lambda: {'count': 0, 'times':[]})
@@ -207,17 +215,34 @@ def zonal_fixed_ave(raw_results,zonal,lsBinWidth = None):
         return final_data
 
     else:
+            
         # Group entries by Mars Sol number
-        grouped_by_sol = defaultdict(list)
+        grouped_by_yearsol = defaultdict(list)
+        prev_sol = None
+        prev_year = None
 
         for entry in raw_results:
             if entry is not None:
-                grouped_by_sol[int(entry['sol'])].append(entry)
+                my = int(entry['year'])
+                sol = int(entry['sol'])
+                 # Check for wrap-around in sol without year increment
+                if prev_sol is not None and prev_year is not None:
+                    if sol < 1 and prev_sol > 660:
+                        if my <= prev_year:
+                            print(f"[WARNING] Sol reset detected without Mars Year increment:")
+                            print(f"  Previous: MY={prev_year}, Sol={prev_sol}, time={entry['time']}")
+                            print(f"  Current:  MY={my}, Sol={sol}, time={entry['time']}")
+                            breakpoint()
+
+            grouped_by_yearsol[(my, sol)].append(entry)
+            prev_sol = sol
+            prev_year = my
+
 
         results = []
-        
-        for sol_number in sorted(grouped_by_sol.keys()):
-            entries = grouped_by_sol[sol_number]
+
+        for (my, sol) in sorted(grouped_by_yearsol.keys()):
+            entries = grouped_by_yearsol[(my,sol)]
             timestamps = np.array([entry['time'].timestamp() for entry in entries])
             mean_time = datetime.fromtimestamp(np.mean(timestamps))
 
@@ -226,12 +251,34 @@ def zonal_fixed_ave(raw_results,zonal,lsBinWidth = None):
             lat = sample['lat']
             alt = sample['alt']
 
-            nlat = lat.size
             nalt = alt.size
 
             vars_to_average = [k for k in sample.keys() if isinstance(k, int)]
-            sums = {k: np.zeros((nlat, nalt)) for k in vars_to_average}
-            counts = {k: np.zeros((nlat, nalt)) for k in vars_to_average}
+
+            # Handle if lat is an array or a single value
+            if isinstance(lat, np.ndarray):
+                nlat = lat.size
+            else:
+                nlat = None  # single location case
+
+            # Determine if the data is 1D or 2D
+            var_sample = sample[vars_to_average[0]]
+            if var_sample.ndim == 2:
+                two_d = True
+            else:
+                two_d = False
+
+            # Preallocate sums and counts
+            sums = {}
+            counts = {}
+            for var_index in vars_to_average:
+                if two_d:
+                    sums[var_index] = np.zeros((nlat, nalt))
+                    counts[var_index] = np.zeros((nlat, nalt))
+                else:
+                    sums[var_index] = np.zeros((nalt,))
+                    counts[var_index] = np.zeros((nalt,))
+                    
             for entry in entries:
                 for var_index in vars_to_average:
                     var = entry[var_index]  # (nlon, nlat, nalt)
@@ -241,22 +288,19 @@ def zonal_fixed_ave(raw_results,zonal,lsBinWidth = None):
                     counts[var_index][valid] += 1  
 
             # Build result for this Sol
-            sol_result = {'sol': sol_number, 'lat': lat, 'alt': alt,'time': mean_time}
+            sol_result = {'year':my,'sol': sol, 'lat': lat, 'alt': alt,'time': mean_time}
+            if isinstance(lat, np.ndarray):
+                sol_result['lat'] = lat
 
             for var_index in vars_to_average:
-                stacked = np.array([entry[var_index] for entry in entries])  # shape (nfiles_in_sol, nlat, nalt)
-
-                valid = np.isfinite(stacked)  # boolean mask of valid entries
-                sums = np.nansum(stacked, axis=0)
-                counts = valid.sum(axis=0)
-
-                with np.errstate(divide='ignore', invalid='ignore'): #ignore divide by zero issues
-                    avg = sums / counts
-                    avg[counts == 0] = np.nan
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    avg = sums[var_index] / counts[var_index]
+                    avg[counts[var_index] == 0] = np.nan
 
                 sol_result[var_index] = avg
 
             results.append(sol_result)
+
 
     return results
 
@@ -270,7 +314,7 @@ def process_batch(files, vars,smin=None,smax=None,zonal=False,lsBinWidth=None, o
 
     reader = partial(readMarsGITM, vars=vars, smin=smin, smax=smax,zonal=zonal,lsBinWidth=lsBinWidth,oco2=oco2,
         verbose=verbose)
-    
+
     # --- Auto-tune max_workers ---
     if max_workers is None:
         cpu_count = multiprocessing.cpu_count()
@@ -291,13 +335,11 @@ def process_batch(files, vars,smin=None,smax=None,zonal=False,lsBinWidth=None, o
             max_workers = min(cpu_count // 2, 16)  # if HDD, be more conservative
 
     print(f"[process_batch] Using {max_workers} workers for {len(files)} files...")
-
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         raw_results = list(tqdm(executor.map(reader,files,chunksize=1),
             total=len(files),desc="Processing files",unit="file"
                 ))
     if zonal:
-        breakpoint()
         return zonal_fixed_ave(raw_results,zonal,lsBinWidth=lsBinWidth)
 
     else:

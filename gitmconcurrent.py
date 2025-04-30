@@ -336,7 +336,7 @@ def process_batch(files, vars,smin=None,smax=None,zonal=False,lsBinWidth=None, o
 
     print(f"[process_batch] Using {max_workers} workers for {len(files)} files...")
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-        raw_results = list(tqdm(executor.map(reader,files,chunksize=1),
+        raw_results = list(tqdm(executor.map(reader,files,chunksize=8),
             total=len(files),desc="Processing files",unit="file"
                 ))
     if zonal:

@@ -1,94 +1,69 @@
 #!/usr/bin/env python
 
-#Convert GITM output to ascii for use with MarsGram
-
-# 1.Longitude(degree) 2.Latitude(degree) 3.SZA(degree) 4.Altitude(km) 5.Tn(K) 6.Ti(K) 7.Te(K)
-# 8.nCO2(#/cc) 9.nO(#/cc) 10.nN2(#/cc) 11.nCO(#/cc) 12.nO2P(#/cc) 13.ne(#/cc) 14.UN(m/s)
-# 15.VN(m/s), 16.WN(m/s)
-
-
 from glob import glob
 import sys
-from gitm_routines import *
-import gitm_coordinates as gc 
-import re 
-from scipy.interpolate import CubicSpline,interp1d
+import numpy as np
+import re
+from scipy.interpolate import CubicSpline, interp1d
 from scipy.constants import k as boltzmann
+from concurrent.futures import ProcessPoolExecutor
+from tqdm import tqdm
+from functools import partial
+from gitm_routines import *
+import gitm_coordinates as gc
 
-rtod = 180.0/3.141592
+rtod = 180.0 / 3.141592
+coordoptions = ['geographic', 'geodetic']
+altitudeGrid = np.arange(60, 302, 2.5)  # Output vertical grid
+vars = [0, 1, 2, 15, 4, 5, 6, 7, 9, 14, 16, 17, 18]
+logarithmic = [4, 5, 6, 7, 9, 14]
+rhovars = [4, 5, 6, 7, 9, 14]
+header = None
+
 def get_args(argv):
-
     filelist = []
     coordinates = 'geographic'
-    help = False 
+    help = False
     minalt = 40
+    serial = False 
 
     for arg in argv:
         IsFound = 0
 
-        if (not IsFound):
-            m = re.match(r'-h',arg)
+        if not IsFound:
+            m = re.match(r'-h', arg)
             if m:
                 help = 1
                 IsFound = 1
 
-            m = re.match(r'-coordinates=(.*)',arg)
+            m = re.match(r'-serial', arg)
+            if m:
+                serial = True
+                IsFound = 1
+
+            m = re.match(r'-coordinates=(.*)', arg)
             if m:
                 coordinates = m.group(1)
                 IsFound = 1
 
-            m = re.match(r'-minalt=(.*)',arg)
+            m = re.match(r'-minalt=(.*)', arg)
             if m:
                 minalt = float(m.group(1))
                 IsFound = 1
 
-        if IsFound==0 and not(arg==argv[0]):
-                filelist.append(arg)
+        if IsFound == 0 and not (arg == argv[0]):
+            filelist.append(arg)
 
-    args = {'filelist':filelist,
-            'coordinates':coordinates.lower(),
-            'help':help,
-            'minalt':minalt,
-            }
-
-    return args
-
-
-args = get_args(sys.argv)
-coordoptions = ['geographic','geodetic']
-coordinates = args['coordinates'].lower()
-if coordinates not in coordoptions:
-    print('{} is not a coordinate option'.format(coordinates))
-    args['help'] = True 
-
-filelist = args['filelist']
-vars = [0,1,2,15,4,5,6,7,9,14,16,17,18]
-logarithmic = [4,5,6,7,9,14]
-minalt = args['minalt']
-nFiles = len(filelist)
-header = read_gitm_header(args["filelist"])
-
-if args['help'] or len(filelist) < 1:
-    print('Usage : ')
-    print('gitm_bin_to_ascii_MarsGRAM.py -coordinates=coordinates -help')
-    print('                   -minalt=minalt  [*.bin or a file]')
-    print('   -help : print this message')
-    print('   -coordinates=geographic or geodetic (default = geographic)')
-    print('   At end, list the files you want to plot')
-    
-    iVar = 0
-    for var in header["vars"]:
-        print(iVar,var)
-        iVar=iVar+1
-
-    exit()
+    return {
+        'filelist': filelist,
+        'coordinates': coordinates.lower(),
+        'help': help,
+        'minalt': minalt,
+        'serial':serial,
+    }
 
 
-i = 0
-rhovars = [4,5,6,7,9,14] 
-altitudeGrid = np.arange(60,302,2.5) #default grid is 2.5 km spacing between 60 and 300 km.
-for file in filelist:
-
+def process_one_file(file, minalt, coordinates,header):
     data = read_gitm_one_file(file, vars)
     pos = file.rfind('.bin')
     tstamp = file[pos-13:pos]
@@ -104,10 +79,10 @@ for file in filelist:
     date = year+'-'+month+'-'+day
     time = hour+':'+minute+":"+second
 
-    if i == 0:
-        nLons = data['nLons'] 
-        nLats = data['nLats'] 
-        nAlts = data['nAlts'] 
+
+    nLons = data['nLons'] 
+    nLats = data['nLats'] 
+    nAlts = data['nAlts'] 
 
     Alts = data[2][0][0]/1000.
     ialtstart = np.where(Alts > minalt)[0][0]
@@ -269,3 +244,41 @@ for file in filelist:
                 f.write("    ".join('{:g}'.format(ele) for ele in thisdata)+"\n")
 
     f.close()
+
+
+
+def main():
+    
+    args = get_args(sys.argv)
+    filelist = args['filelist']
+    coordinates = args['coordinates']
+    minalt = args['minalt']
+    run_serial = args['serial']
+ 
+
+    if coordinates not in coordoptions:
+        print(f'{coordinates} is not a coordinate option')
+        args['help'] = True
+
+    if args['help'] or len(filelist) < 1:
+        header = read_gitm_header(filelist)
+        print('Usage:')
+        print('gitm_bin_to_ascii_MarsGRAM.py -coordinates=geographic|geodetic -minalt=N [*.bin files]')
+        print('Available variables:')
+        for i, var in enumerate(header["vars"]):
+            print(i, var)
+        return
+
+    header = read_gitm_header(filelist)
+    worker = partial(process_one_file, minalt=minalt, coordinates=coordinates,header=header)
+
+    if run_serial:
+        for file in tqdm(filelist, desc="Serial processing"):
+            worker(file)
+    else:
+        with ProcessPoolExecutor(max_workers=16) as executor:
+                    list(tqdm(executor.map(worker, filelist, chunksize=1),
+                            total=len(filelist), desc="Parallel processing"))
+
+if __name__ == "__main__":
+    main()

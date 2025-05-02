@@ -382,7 +382,7 @@ if oco2:
 # ---------------------------------------------------------------------- 
 # cmap = 'turbo'
 cmap = 'plasma'
-
+breakpoint()
 times = [entry['time'] for entry in data]
 alts = data[0]['alt']
 plotdim = ""
@@ -402,7 +402,6 @@ for var_index, varname in zip(vars[3:], varnames[3:]):
 
     if args['cut'] != 'sza' and args['cut'] != 'zonal':
         for entry in data:
-            
             lon = entry['lon']
             lat = entry['lat']
             alt_index = np.argmin(np.abs(data[0]['alt'] - palt))

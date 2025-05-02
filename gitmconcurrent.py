@@ -61,13 +61,14 @@ def readMarsGITM(file, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=
         elif isinstance(zonal, str):
             if zonal.lower() == 'subsolar':
                 mode = 'subsolar'
+
             else:
                 try:
                     lt_target = int(zonal)
                     mode = 'local_time_average'
                 except ValueError:
                     pass  # ignore invalid strings
-        elif isinstance(zonal, int):
+        elif isinstance(zonal, int) and zonal != False:
             mode = 'local_time_average'
             lt_target = zonal
 
@@ -80,7 +81,6 @@ def readMarsGITM(file, vars,smin=None,smax=None,loc=None,zonal=False,lsBinWidth=
             'MTC':timedata.MTC,
             'Ls':timedata.ls
         }
-
         if lsBinWidth is not None:
             ls_bin = int(timedata.ls // lsBinWidth) * lsBinWidth
             result['ls_bin'] = ls_bin

@@ -9,172 +9,74 @@ import matplotlib.pyplot as pp
 import matplotlib.dates as mdates
 from matplotlib.gridspec import GridSpec
 from gitm_routines import *
-import re
+import argparse
 import sys
 import os
 
 rtod = 180.0/3.141592
 
+
+def compute_ratio(numer, denom):
+    """Safely compute a ratio avoiding divide by zero."""
+    return np.divide(numer, denom, out=np.zeros_like(numer), where=denom != 0)
+
+
+def percent_diff(data, baseline):
+    """Return percent difference between two arrays."""
+    return (data - baseline) / baseline * 100.0
+
+
 def get_args(argv):
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Plot GITM altitude profile at a location or SZA range"
+    )
+    parser.add_argument("filelist", nargs="+", help="Input GITM file(s)")
+    parser.add_argument("-var", type=str, help="Variable(s) to plot, comma separated")
+    parser.add_argument("-diff", default="0", help="Background files glob for differencing")
+    parser.add_argument("-cut", default="loc", choices=["loc", "sza"], help="Plot type")
+    parser.add_argument("-lat", type=float, default=-100.0, help="Latitude in degrees")
+    parser.add_argument("-lon", type=float, default=-100.0, help="Longitude in degrees")
+    parser.add_argument("-smin", type=float, default=-100.0, help="Minimum solar zenith angle")
+    parser.add_argument("-smax", type=float, default=-100.0, help="Maximum solar zenith angle")
+    parser.add_argument("-min", dest="minv", type=float, help="Minimum value to plot")
+    parser.add_argument("-max", dest="maxv", type=float, help="Maximum value to plot")
+    parser.add_argument("-alog", dest="IsLog", action="store_true", help="Plot log of variable")
+    parser.add_argument("-oco2", action="store_true", help="Calculate and plot O/CO2 ratio")
+    parser.add_argument("-press", dest="pressure", action="store_true", help="Use pressure as vertical coordinate")
+    parser.add_argument("-grid", action="store_true", help="Enable grid on plot")
+    parser.add_argument("--list-vars", action="store_true", help="List available variables and exit")
 
-    filelist = []
-    IsLog = 0
-    diff = '0'
-    var = None
-    alt = 400.0
-    lon = -100.0
-    lat = -100.0
-    cut = 'loc'
-    smin = -100.0
-    smax = -100.0
-    minv = None
-    maxv = None
-    oco2 = 0
-    pressure = 0
-    grid = None 
+    args = parser.parse_args(argv[1:])
 
-    help = 0
+    if args.cut == "loc":
+        if args.lon <= -50:
+            parser.error("cut=loc requires -lon and -lat")
+    elif args.cut == "sza":
+        if args.smin <= -50 or args.smax <= -50:
+            parser.error("cut=sza requires -smin and -smax")
 
-    for arg in argv:
-
-        IsFound = 0
-
-        if (not IsFound):
-
-            m = re.match(r'-var=(.*)',arg)
-            if m:
-                var = m.group(1)
-                IsFound = 1
-
-            m = re.match(r'-diff=(.*)',arg)
-            if m:
-                diff = m.group(1)
-                IsFound = 1
-
-            m = re.match(r'-cut=(.*)',arg)
-            if m:
-                cut = m.group(1)
-                IsFound = 1
-
-            m = re.match(r'-lat=(.*)',arg)
-            if m:
-                lat = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-lon=(.*)',arg)
-            if m:
-                lon = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-smin=(.*)',arg)
-            if m:
-                smin = int(m.group(1))
-                IsFound = 1   
-
-            m = re.match(r'-smax=(.*)',arg)
-            if m:
-                smax = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-min=(.*)',arg)
-            if m:
-                minv = float(m.group(1))
-                IsFound = 1   
-
-            m = re.match(r'-max=(.*)',arg)
-            if m:
-                maxv = float(m.group(1))
-                IsFound = 1  
-
-            m = re.match(r'-alog',arg)
-            if m:
-                IsLog = 1
-                IsFound = 1
-
-            m = re.match(r'-oco2',arg)
-            if m:
-                oco2 = 1
-                IsFound = 1
-
-            m = re.match(r'-press',arg)
-            if m:
-                pressure = 1
-                IsFound = 1
-
-            m = re.match(r'-h',arg)
-            if m:
-                help = 1
-                IsFound = 1
-
-            m = re.match(r'-grid',arg)
-            if m:
-                grid = 1
-                IsFound = 1
-
-            if IsFound==0 and not(arg==argv[0]):
-                filelist.append(arg)
-
-    args = {'filelist':filelist,
-            'var':var,
-            'help':help,
-            'lat':lat,
-            'lon':lon,
-            'IsLog':IsLog,
-            'cut':cut,
-            'smin':smin,
-            'smax':smax,
-            'diff':diff,
-            'minv':minv,
-            'maxv':maxv,
-            'oco2':oco2,
-            'pressure':pressure,
-            'grid':grid}
-
-    return args
+    return vars(args)
 
 args = get_args(sys.argv)
 header = read_gitm_header(args["filelist"])
 
-if args['cut'] == 'loc' and args['lon'] > -50:
+if args["list_vars"]:
+    for i, var in enumerate(header["vars"]):
+        print(i, var)
+    sys.exit()
+
+if args['cut'] == 'loc':
     plon = args['lon']
     plat = args['lat']
-elif args['cut'] == 'sza' and args['smin'] > -50:
+else:  # cut == 'sza'
     smin = args['smin']
     smax = args['smax']
-else:
-    args["help"] = '-h'    
-
-if (args["help"]):
-
-    print('Usage : ')
-    print('gitm_plot_alt_profile.py (-var=N1[,N2,N3,...] | -oco2) -lat=lat -lon=lon -alog')
-    print('                     -help [file]')
-    print('   -help : print this message')
-    print('   -var=number[,num2,num3,...] : variable(s) to plot (cannot be used with -oco2)')
-    print('   -cut=loc,sza: Plot type ')
-    print('   -lat=latitude : latitude in degrees (closest) (cut=loc) ')
-    print('   -lon=longitude: longitude in degrees (closest) (cut=loc)')
-    print('   -smin=minsza: minimum solar zenith angle (cut=sza)')
-    print('   -smax=maxsza: maximum solar zenigh angle (cut=sza)')
-    print('   -min=min: minimum value to plot')
-    print('   -max=max: maximum value to plot')
-    print('   -alog: plot the log of the variable')
-    print('   -diff=backgroundFiles: plot the difference between 2 sets of files')
-    print('   -oco2: calculate and plot O/CO2 ratio (requires 3DALL file; cannot be used with -var)')
-    print('   -press: use pressure for the vertical coordinate')
-    print('   Non-KW arg: files.')
-
-    iVar = 0
-    for var in header["vars"]:
-        print(iVar,var)
-        iVar=iVar+1
-
-    exit()
 
 
 filelist = args["filelist"]
-
-if len(filelist) > 1:
+nFiles = len(filelist)
+if nFiles > 1:
     print('Only 1 file should be specified')
     exit(1)
 
@@ -288,22 +190,23 @@ if args['cut'] == 'loc':
 
     for ivar in var_list:
         if ivar == 'O/CO2':
+            o = data[o_index][ilon, ilat, ialt1:ialt2+1]
+            co2 = data[co2_index][ilon, ilat, ialt1:ialt2+1]
+            ratio = compute_ratio(o, co2)
             if diff:
-                num = data[o_index][ilon,ilat,ialt1:ialt2+1] / \
-                      data[co2_index][ilon,ilat,ialt1:ialt2+1]
-                denom = background[o_index][ilon,ilat,ialt1:ialt2+1] / \
-                        background[co2_index][ilon,ilat,ialt1:ialt2+1]
-                temp = (num - denom) / denom * 100.0
+                o_b = background[o_index][ilon, ilat, ialt1:ialt2+1]
+                co2_b = background[co2_index][ilon, ilat, ialt1:ialt2+1]
+                base_ratio = compute_ratio(o_b, co2_b)
+                temp = percent_diff(ratio, base_ratio)
             else:
-                o = data[o_index][ilon,ilat,ialt1:ialt2+1]
-                co2 = data[co2_index][ilon,ilat,ialt1:ialt2+1]
-                temp = np.divide(o, co2, out=np.zeros_like(o), where=co2!=0)
+                temp = ratio
         else:
+            prof = data[int(ivar)][ilon, ilat, ialt1:ialt2+1]
             if diff:
-                temp = (data[int(ivar)][ilon,ilat,ialt1:ialt2+1]-background[int(ivar)][ilon,ilat,ialt1:ialt2+1])/ \
-                    background[int(ivar)][ilon,ilat,ialt1:ialt2+1]*100.0
+                base = background[int(ivar)][ilon, ilat, ialt1:ialt2+1]
+                temp = percent_diff(prof, base)
             else:
-                temp = data[int(ivar)][ilon,ilat,ialt1:ialt2+1]
+                temp = prof
 
         AllData[ivar].append(temp)
 
@@ -315,27 +218,23 @@ if args['cut'] == 'sza':
         Press = pressure[:,:,ialt1:ialt2+1][mask].mean(axis=0)
     for ivar in var_list:
         if ivar == 'O/CO2':
+            o = data[o_index][:,:,ialt1:ialt2+1][mask]
+            co2 = data[co2_index][:,:,ialt1:ialt2+1][mask]
+            ratio = compute_ratio(o, co2).mean(axis=0)
             if diff:
-                o1 = data[o_index][:,:,ialt1:ialt2+1][mask]
-                co21 = data[co2_index][:,:,ialt1:ialt2+1][mask]
-                ratio1 = np.divide(o1, co21, out=np.zeros_like(o1), where=co21!=0).mean(axis=0)
-                o2 = background[o_index][:,:,ialt1:ialt2+1][mask]
-                co22 = background[co2_index][:,:,ialt1:ialt2+1][mask]
-                ratio2 = np.divide(o2, co22, out=np.zeros_like(o2), where=co22!=0).mean(axis=0)
-                temp = (ratio1 - ratio2) / ratio2 * 100.0
+                o_b = background[o_index][:,:,ialt1:ialt2+1][mask]
+                co2_b = background[co2_index][:,:,ialt1:ialt2+1][mask]
+                base_ratio = compute_ratio(o_b, co2_b).mean(axis=0)
+                temp = percent_diff(ratio, base_ratio)
             else:
-                o = data[o_index][:,:,ialt1:ialt2+1][mask]
-                co2 = data[co2_index][:,:,ialt1:ialt2+1][mask]
-                temp = np.divide(o, co2, out=np.zeros_like(o), where=co2!=0).mean(axis=0)
+                temp = ratio
         else:
+            prof = data[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
             if diff:
-                #Calculate the mean of both sets of data and then calculate the percent difference.
-                mean1 = data[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
-                mean2 = background[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
-                temp = (mean1-mean2)/mean2*100.
-
+                base = background[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+                temp = percent_diff(prof, base)
             else:
-                temp = data[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+                temp = prof
 
         AllData[ivar].append(temp)
 
@@ -416,10 +315,10 @@ if args['maxv'] == None:
 else:
     maxv = args['maxv']
 
-if ivar == 'O/CO2':
-    pp.axvline(x=1,linestyle='--')
+if 'O/CO2' in var_list:
+    pp.axvline(x=1, linestyle='--')
 
-if args['grid'] is not None:
+if args['grid']:
     pp.grid(True)  # Turn the grid on
 
 pp.xlim([minv,maxv])

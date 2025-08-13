@@ -20,7 +20,7 @@ def get_args(argv):
     filelist = []
     IsLog = 0
     diff = '0'
-    var = 15
+    var = None
     alt = 400.0
     lon = -100.0
     lat = -100.0
@@ -135,10 +135,10 @@ else:
 if (args["help"]):
 
     print('Usage : ')
-    print('gitm_plot_alt_profile.py -var=N1[,N2,N3,...] -lat=lat -lon=lon -alog')
+    print('gitm_plot_alt_profile.py (-var=N1[,N2,N3,...] | -oco2) -lat=lat -lon=lon -alog')
     print('                     -help [file]')
     print('   -help : print this message')
-    print('   -var=number[,num2,num3,...] : number is variable to plot')
+    print('   -var=number[,num2,num3,...] : variable(s) to plot (cannot be used with -oco2)')
     print('   -cut=loc,sza: Plot type ')
     print('   -lat=latitude : latitude in degrees (closest) (cut=loc) ')
     print('   -lon=longitude: longitude in degrees (closest) (cut=loc)')
@@ -148,7 +148,7 @@ if (args["help"]):
     print('   -max=max: maximum value to plot')
     print('   -alog: plot the log of the variable')
     print('   -diff=backgroundFiles: plot the difference between 2 sets of files')
-    print('   -oco2: calculate and plot O/CO2 ratio (requires 3DALL file)')
+    print('   -oco2: calculate and plot O/CO2 ratio (requires 3DALL file; cannot be used with -var)')
     print('   Non-KW arg: files.')
 
     iVar = 0
@@ -184,8 +184,10 @@ if args['diff'] != '0':
         print('Only 1 file should be specified')
         exit(1)
     bFile = backgroundFilelist[0]
-var_list = args['var'].split(',')
 if args['oco2']:
+    if args['var'] is not None:
+        print('Cannot specify both -var and -oco2')
+        exit(1)
     if not os.path.basename(file).startswith('3DALL'):
         print('O/CO2 ratio can only be calculated from 3DALL files')
         exit(1)
@@ -198,7 +200,12 @@ if args['oco2']:
     for idx in [o_index, co2_index]:
         if idx not in vars:
             vars.append(idx)
-    var_list.append('O/CO2')
+    var_list = ['O/CO2']
+else:
+    if args['var'] is None:
+        print('Either -var or -oco2 must be specified')
+        exit(1)
+    var_list = args['var'].split(',')
 vars.extend([int(v) for v in var_list if v.isdigit()])
 Var = []
 for v in var_list:
@@ -211,9 +218,7 @@ AllData = {a:[] for a in var_list}
 AllData2D = []
 AllAlts = []
 AllSZA = []
-j = 0
 
-breakpoint()
 data = read_gitm_one_file(file, vars)
     
 [nLons, nLats, nAlts] = data[0].shape
@@ -330,6 +335,8 @@ if len(Var) == 1:
     svar = var_list[0]
     if svar.isdigit():
         svar = f'{int(svar):02d}'
+    else:
+        svar = svar.replace('/', '_')
     if diff:
         xlabel = '{}\n% Diff'.format(Var[0])
     else:

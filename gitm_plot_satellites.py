@@ -10,9 +10,9 @@ from gitm_routines import *
 import pandas as pd 
 import ngims 
 import rose
+import marstiming as mt 
 
-
-minalt = 100 
+minalt = 80 
 
 def get_args(argv):
 
@@ -25,6 +25,7 @@ def get_args(argv):
     average = False
     stddev = False
     sats = None
+    reactions = False
 
     for arg in argv:
 
@@ -60,7 +61,12 @@ def get_args(argv):
             if m:
                 average = True
                 IsFound = 1
-            
+
+            m = re.match(r'-reactions',arg)
+            if m:
+                reactions = True
+                IsFound = 1
+
             m = re.match(r'-stddev',arg)
             if m:
                 stddev = True
@@ -84,6 +90,7 @@ def get_args(argv):
         'average':average,
         'stddev':stddev,
         'sats':sats,
+        'reactions':reactions,
     }
 
     return args
@@ -120,6 +127,7 @@ if (args["help"]):
     print('   -stddev: if using average, also plot stddev')
     print('   -sats=sats: overplot sat files. Current sat options')
     print('      are: ngims/rose')
+    print('   -reactions: you are plotting reactions and you might want to plot the associated text')
     print('   At end, list the files you want to plot')
 
     iVar = 0
@@ -133,6 +141,7 @@ filelist = args['filelist']
 
 
 vars = [0,1,2]
+
 vars.extend([int(v) for v in args["var"].split(',')])
 Var = [header['vars'][int(i)] for i in args['var'].split(',')]
 
@@ -143,7 +152,7 @@ varmap = {29:44,28:32,27:16,4:'CO2',6:'O',
 varcmap = {27:'O$^+$',28:'O$_2^+$',29:'CO$_2^+$',
 4:'CO$_2$',6:'O',7:'N$_2$',9:'Ar',5:'CO'}
 
-fig = pp.figure() 
+fig,ax = pp.subplots()
 
 minv = 9.e20
 maxv = -9.e20
@@ -151,6 +160,8 @@ maxv = -9.e20
 alldata = [] 
 directories = [] 
 i = 0
+
+
 for file in filelist:
     match = re.match(r'(.*?)\/',filelist[i])
     if match:
@@ -163,9 +174,7 @@ for file in filelist:
     alldata.append(data) #an array with all sat files data
     i+=1
 
-
 df = pd.DataFrame(alldata)
-
 #plot options depending on the dataset
 linestyles = ['-','--','-.',':']
 ndirs = 0
@@ -180,7 +189,8 @@ if directories:
 if ndirs <= 1:
     linestyle = '-'
 
-colors = ['blue','green','orange','red','yellow']
+cmap = pp.get_cmap('tab20')
+colors = [cmap(i) for i in range(20)]
 
 if not args['average']:
     for ifile in range(len(alldata)):
@@ -188,18 +198,20 @@ if not args['average']:
         for pvar in args["var"].split(','):
             pdata = alldata[ifile][int(pvar)][0,0,iminalt:]
             if args['alog']: 
-                pdata = np.log10(pdata)
+                pdata= np.where(pdata > 0, np.log10(pdata), 0)
             if min(pdata) < minv:
                 minv = min(pdata)
             if max(pdata) > maxv:
                 maxv = max(pdata)
-            
-            # ivar = args["var"].index(pvar)
+
             if ndirs > 1:
                 linestyle = dirmap[directories[ifile]]
             line, = pp.plot(pdata,alts[iminalt:],color=colors[ivar],ls=linestyle)
             if ndirs <= 1:
-                line.set_label(header["vars"][int(pvar)])
+                if args['reactions']:
+                    line.set_label(marsreactions[int(header['vars'][int(pvar)])])
+                else:
+                    line.set_label(name_dict[header["vars"][int(pvar)]])
 
             ivar +=1
     if ndirs <= 1 and sats:
@@ -216,7 +228,7 @@ else:
         if max(pdata) > maxv:
             maxv = max(pdata)
 
-        pp.plot(pdata,alts[iminalt:],'k',linewidth=2,label='MGITM') 
+        ax.plot(pdata,alts[iminalt:],'k',linewidth=2,label='MGITM') 
 
         if args['stddev']:
             tempdata = df[int(pvar)].to_numpy()
@@ -228,12 +240,12 @@ else:
 
                 stddata = np.log10(stddata)
             pp.fill_betweenx(alts[iminalt:],pdata-stddata,pdata+stddata)
-if args['min']:
+if args['min'] is not None:
     mini = args['min']
 else:
     mini = minv
 
-if args['max']:
+if args['max'] is not None:
     maxi = args['max']
 else:
     maxi = maxv
@@ -242,11 +254,10 @@ imaxden = np.argmax(pdata)
 inearest = find_nearest_index(alts[iminalt:],270)
 maxden = pdata[inearest]
 if plotmaxden:
-    pp.plot([-999,1e30],[alts[imaxden],alts[imaxden]],'r--')
+    pp.ax([-999,1e30],[alts[imaxden],alts[imaxden]],'r--')
 # pp.plot([maxden,maxden],[0,300],'r--',alpha=.7)
-pp.ylim([minalt,250])
+pp.ylim([minalt,300])
 pp.xlim([mini,maxi])
-
 
 ### Test the average 
 def testave():
@@ -323,7 +334,7 @@ if sats:
                         starred = '*'
                     
                     altitude = newdf.loc[newdf["alt"] < maxalt,'alt'].values
-                    line, = pp.plot(density,altitude,'.',markersize = 5,color='dimgrey')
+                    line, = ax.plot(density,altitude,'.',markersize = 5,color='dimgrey')
                     # if allions:
                     #     line.set_label(varmap[pvar])
                     # else:
@@ -407,15 +418,25 @@ if sats:
             pp.fill_betweenx(averagebins,density2-stddevdata,density2+stddevdata,\
                 color='lightgrey',alpha=.8)
 
-
 if ndirs > 1:
+   
     handles = [pp.Line2D([], [], linestyle=value) for value in dirmap.values()]
     pp.legend(handles, dirmap.keys(),loc='upper right',frameon=False)
 else:
-    pp.legend(loc='upper right',frameon=False)
+    if args['reactions']:
+        box = ax.get_position()
+        ax.set_position([box.x0, box.y0, box.width * 0.65, box.height])
+        pp.legend(bbox_to_anchor=[1.04,1],loc='upper left',frameon=False,prop={'size': 10})
+    else:
+        pp.legend(loc='upper left',frameon=False)
 # pp.xlabel(name_dict[header['vars'][vars[3]]])
-pp.xlabel('Heating Rate')
+pp.xlabel('Density')
 # pp.xlabel('Production Rate (m$^{-3}s^{-1}$)')
 # pp.xlabel('[e-] [m$^{-3}$]')
 pp.ylabel('Altitude (km)')
+msd = mt.getMarsSolarGeometry(data['time'])
+LT = mt.getLTfromTime(data['time'],data[0][0,0,0]*180/np.pi)
+SZA = mt.getSZAfromTime(msd,data[0][0,0,0]*180/np.pi, data[1][0,0,0]*180/np.pi)
+pp.title(f"{data['time'].strftime("%Y%m%d-%H:%M UT")}\n{LT:.1f} LT, {SZA:.1f} SZA")
 pp.savefig('plot.png')
+# breakpoint()

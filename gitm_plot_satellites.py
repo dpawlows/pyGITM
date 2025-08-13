@@ -12,7 +12,21 @@ import ngims
 import rose
 import marstiming as mt 
 
-minalt = 80 
+minalt = 80
+
+def find_homopause(n2, ar, alts):
+    ratio = n2 / ar
+    idx = np.where(ratio >= 1.25)[0]
+    if len(idx) == 0:
+        return None
+    i_last = idx[-1]
+    if i_last < len(alts) - 1:
+        r0, r1 = ratio[i_last], ratio[i_last + 1]
+        a0, a1 = alts[i_last], alts[i_last + 1]
+        if r1 != r0:
+            return a0 + (1.25 - r0) * (a1 - a0) / (r1 - r0)
+        return a0
+    return alts[i_last]
 
 def get_args(argv):
 
@@ -168,9 +182,15 @@ if args['mix']:
         exit()
     vars.extend(neutral_vars)
     plot_vars = neutral_vars
+    n2_idx = header['vars'].index('[N!D2!N]') if '[N!D2!N]' in header['vars'] else None
+    ar_idx = header['vars'].index('[Ar]') if '[Ar]' in header['vars'] else None
+    homopause_alt = None
+    if n2_idx is None or ar_idx is None:
+        print('N2 or Ar not found; homopause will not be computed.')
 else:
     plot_vars = [int(v) for v in args["var"].split(',')]
     vars.extend(plot_vars)
+    homopause_alt = None
 Var = [header['vars'][i] for i in plot_vars]
 
 varmap = {29:44,28:32,27:16,4:'CO2',6:'O',
@@ -266,8 +286,17 @@ if not args['average']:
     if ndirs <= 1 and sats:
         line.set_label('MGITM')
 
+    if args['mix'] and n2_idx is not None and ar_idx is not None:
+        n2_data = alldata[0][n2_idx][0,0,iminalt:]
+        ar_data = alldata[0][ar_idx][0,0,iminalt:]
+        homopause_alt = find_homopause(n2_data, ar_data, alts[iminalt:])
+
 else:
     meandata = df.mean()
+    if args['mix'] and n2_idx is not None and ar_idx is not None:
+        n2_data = meandata[n2_idx][0,0,iminalt:]
+        ar_data = meandata[ar_idx][0,0,iminalt:]
+        homopause_alt = find_homopause(n2_data, ar_data, alts[iminalt:])
     if args['mix']:
         total = np.zeros_like(meandata[plot_vars[0]][0,0,iminalt:])
         for pvar in plot_vars:
@@ -493,8 +522,12 @@ if sats:
             pp.fill_betweenx(averagebins,density2-stddevdata,density2+stddevdata,\
                 color='lightgrey',alpha=.8)
 
+if homopause_alt is not None:
+    ax.text(0.95,0.95,f"homopause: {homopause_alt:.1f} km", transform=ax.transAxes,
+            ha='right', va='top')
+
 if ndirs > 1:
-   
+
     handles = [pp.Line2D([], [], linestyle=value) for value in dirmap.values()]
     pp.legend(handles, dirmap.keys(),loc='upper right',frameon=False)
 else:

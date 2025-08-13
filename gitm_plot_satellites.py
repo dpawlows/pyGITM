@@ -42,6 +42,7 @@ def get_args(argv):
     sats = None
     reactions = False
     mix = False
+    press = False
 
     for arg in argv:
 
@@ -98,6 +99,11 @@ def get_args(argv):
                 mix = True
                 IsFound = 1
 
+            m = re.match(r'-press',arg)
+            if m:
+                press = True
+                IsFound = 1
+
             if IsFound==0 and not(arg==argv[0]):
                 filelist.append(arg)
 
@@ -113,6 +119,7 @@ def get_args(argv):
         'sats':sats,
         'reactions':reactions,
         'mix':mix,
+        'press':press,
     }
 
     return args
@@ -127,6 +134,10 @@ if sats and not sats in currentsats:
 
 if args['mix'] and sats:
     print('Satellite comparison not available with -mix option. Ignoring -sats.')
+    sats = None
+
+if args['press'] and sats:
+    print('Satellite comparison not available with -press option. Ignoring -sats.')
     sats = None
 
 if args['stddev'] and not args['average']:
@@ -155,6 +166,7 @@ if (args["help"]):
     print('      are: ngims/rose')
     print('   -reactions: you are plotting reactions and you might want to plot the associated text')
     print('   -mix : plot mixing ratio of all neutral species')
+    print('   -press : use pressure as vertical coordinate')
     print('   At end, list the files you want to plot')
 
     iVar = 0
@@ -172,6 +184,23 @@ if args['mix']:
             print(f'Warning: {f} may not contain neutral species; ALL output required.')
 
 vars = [0,1,2]
+kb = 1.380649e-23
+temp_index = None
+species_inds = []
+if args['press']:
+    for tname in ['Temperature', 'Tn']:
+        if tname in header['vars']:
+            temp_index = header['vars'].index(tname)
+            break
+    if temp_index is None:
+        print('Temperature not available to calculate pressure')
+        exit(1)
+    if temp_index not in vars:
+        vars.append(temp_index)
+    species_inds = [i for i, v in enumerate(header['vars']) if v.startswith('[')]
+    for idx in species_inds:
+        if idx not in vars:
+            vars.append(idx)
 
 if args['mix']:
     neutral_vars = []
@@ -206,8 +235,9 @@ fig,ax = pp.subplots()
 minv = 9.e20
 maxv = -9.e20
 
-alldata = [] 
-directories = [] 
+alldata = []
+pressures = []
+directories = []
 i = 0
 
 
@@ -216,6 +246,12 @@ for file in filelist:
     if match:
         directories.append(match.group(1))
     data = read_gitm_one_file(file,vars)
+    if args['press']:
+        temp = data[temp_index]
+        dens = np.zeros_like(temp)
+        for idx in species_inds:
+            dens += data[idx]
+        pressures.append((dens * kb * temp)[0,0])
 
     if i == 0:
         alts = data[2][0,0]/1000. #Assumes the altitude grid doesn't change with file
@@ -241,6 +277,11 @@ if ndirs <= 1:
 cmap = pp.get_cmap('tab20')
 colors = [cmap(i) for i in range(20)]
 
+if args['press']:
+    yarrays = pressures
+else:
+    yarrays = [alts for _ in alldata]
+
 if not args['average']:
     for ifile in range(len(alldata)):
         ivar = 0
@@ -259,7 +300,7 @@ if not args['average']:
 
                 if ndirs > 1:
                     linestyle = dirmap[directories[ifile]]
-                line, = pp.plot(pdata,alts[iminalt:],color=colors[ivar],ls=linestyle)
+                line, = pp.plot(pdata,yarrays[ifile][iminalt:],color=colors[ivar],ls=linestyle)
                 if ndirs <= 1:
                     label = name_dict.get(header["vars"][pvar], header["vars"][pvar])
                     line.set_label(label)
@@ -276,7 +317,7 @@ if not args['average']:
 
                 if ndirs > 1:
                     linestyle = dirmap[directories[ifile]]
-                line, = pp.plot(pdata,alts[iminalt:],color=colors[ivar],ls=linestyle)
+                line, = pp.plot(pdata,yarrays[ifile][iminalt:],color=colors[ivar],ls=linestyle)
                 if ndirs <= 1:
                     if args['reactions']:
                         line.set_label(marsreactions[int(header['vars'][pvar])])
@@ -294,6 +335,10 @@ if not args['average']:
 
 else:
     meandata = df.mean()
+    if args['press']:
+        ymean = np.mean(np.array(yarrays), axis=0)
+    else:
+        ymean = yarrays[0]
     if args['mix'] and n2_idx is not None and ar_idx is not None:
         n2_data = meandata[n2_idx][0,0,iminalt:]
         ar_data = meandata[ar_idx][0,0,iminalt:]
@@ -311,7 +356,7 @@ else:
                 minv = min(pdata)
             if max(pdata) > maxv:
                 maxv = max(pdata)
-            ax.plot(pdata,alts[iminalt:],color=colors[ivar],linewidth=2,
+            ax.plot(pdata,ymean[iminalt:],color=colors[ivar],linewidth=2,
                     label=name_dict.get(header["vars"][pvar], header["vars"][pvar]))
             if args['stddev']:
                 tempdata = df[pvar].to_numpy()
@@ -321,7 +366,7 @@ else:
                 stddata = np.std(newdata,0)
                 if args['alog']:
                     stddata = np.log10(stddata)
-                pp.fill_betweenx(alts[iminalt:],pdata-stddata,pdata+stddata)
+                pp.fill_betweenx(ymean[iminalt:],pdata-stddata,pdata+stddata)
             ivar +=1
     else:
         for pvar in plot_vars:
@@ -333,7 +378,7 @@ else:
             if max(pdata) > maxv:
                 maxv = max(pdata)
 
-            ax.plot(pdata,alts[iminalt:],'k',linewidth=2,label='MGITM')
+            ax.plot(pdata,ymean[iminalt:],'k',linewidth=2,label='MGITM')
 
             if args['stddev']:
                 tempdata = df[pvar].to_numpy()
@@ -344,7 +389,7 @@ else:
                 if args['alog']:
 
                     stddata = np.log10(stddata)
-                pp.fill_betweenx(alts[iminalt:],pdata-stddata,pdata+stddata)
+                pp.fill_betweenx(ymean[iminalt:],pdata-stddata,pdata+stddata)
 if args['min'] is not None:
     mini = args['min']
 else:
@@ -355,13 +400,21 @@ if args['max'] is not None:
 else:
     maxi = maxv
 
-imaxden = np.argmax(pdata)
-inearest = find_nearest_index(alts[iminalt:],270)
-maxden = pdata[inearest]
-if plotmaxden:
-    pp.ax([-999,1e30],[alts[imaxden],alts[imaxden]],'r--')
-# pp.plot([maxden,maxden],[0,300],'r--',alpha=.7)
-pp.ylim([minaltplot,300])
+if args['press']:
+    if args['average']:
+        yvals = ymean[iminalt:]
+    else:
+        yvals = yarrays[0][iminalt:]
+    ax.set_yscale('log')
+    pp.ylim([yvals.max(), yvals.min()])
+else:
+    imaxden = np.argmax(pdata)
+    inearest = find_nearest_index(alts[iminalt:],270)
+    maxden = pdata[inearest]
+    if plotmaxden:
+        pp.ax([-999,1e30],[alts[imaxden],alts[imaxden]],'r--')
+    # pp.plot([maxden,maxden],[0,300],'r--',alpha=.7)
+    pp.ylim([minaltplot,300])
 pp.xlim([mini,maxi])
 
 ### Test the average 
@@ -545,7 +598,10 @@ else:
     pp.xlabel('Density')
 # pp.xlabel('Production Rate (m$^{-3}s^{-1}$)')
 # pp.xlabel('[e-] [m$^{-3}$]')
-pp.ylabel('Altitude (km)')
+if args['press']:
+    pp.ylabel('Pressure (Pa)')
+else:
+    pp.ylabel('Altitude (km)')
 msd = mt.getMarsSolarGeometry(data['time'])
 LT = mt.getLTfromTime(data['time'],data[0][0,0,0]*180/np.pi)
 SZA = mt.getSZAfromTime(msd,data[0][0,0,0]*180/np.pi, data[1][0,0,0]*180/np.pi)

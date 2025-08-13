@@ -26,6 +26,7 @@ def get_args(argv):
     stddev = False
     sats = None
     reactions = False
+    mix = False
 
     for arg in argv:
 
@@ -77,6 +78,11 @@ def get_args(argv):
                 sats = m.group(1)
                 IsFound = 1
 
+            m = re.match(r'-mix',arg)
+            if m:
+                mix = True
+                IsFound = 1
+
             if IsFound==0 and not(arg==argv[0]):
                 filelist.append(arg)
 
@@ -91,6 +97,7 @@ def get_args(argv):
         'stddev':stddev,
         'sats':sats,
         'reactions':reactions,
+        'mix':mix,
     }
 
     return args
@@ -101,7 +108,11 @@ sats = args['sats']
 currentsats = ['ngims','rose']
 if sats and not sats in currentsats:
     print('Only available sats are: '+",".join(currentsats))
-    args['help'] = True 
+    args['help'] = True
+
+if args['mix'] and sats:
+    print('Satellite comparison not available with -mix option. Ignoring -sats.')
+    sats = None
 
 if args['stddev'] and not args['average']:
     print('You must specify -average if you are using -stddev')
@@ -109,7 +120,7 @@ if args['stddev'] and not args['average']:
 
 header = read_gitm_header(args["filelist"])
 
-if args['var'] == -1:
+if args['var'] == -1 and not args['mix']:
     args['help'] = True
 
 if (args["help"]):
@@ -128,6 +139,7 @@ if (args["help"]):
     print('   -sats=sats: overplot sat files. Current sat options')
     print('      are: ngims/rose')
     print('   -reactions: you are plotting reactions and you might want to plot the associated text')
+    print('   -mix : plot mixing ratio of all neutral species')
     print('   At end, list the files you want to plot')
 
     iVar = 0
@@ -139,11 +151,27 @@ if (args["help"]):
 
 filelist = args['filelist']
 
+if args['mix']:
+    for f in filelist:
+        if 'ALL' not in f.upper():
+            print(f'Warning: {f} may not contain neutral species; ALL output required.')
 
 vars = [0,1,2]
 
-vars.extend([int(v) for v in args["var"].split(',')])
-Var = [header['vars'][int(i)] for i in args['var'].split(',')]
+if args['mix']:
+    neutral_vars = []
+    for i, v in enumerate(header["vars"]):
+        if v.startswith('[') and '!U+!N' not in v and v != '[e-]':
+            neutral_vars.append(i)
+    if len(neutral_vars) == 0:
+        print('No neutral species found. Ensure ALL output is used.')
+        exit()
+    vars.extend(neutral_vars)
+    plot_vars = neutral_vars
+else:
+    plot_vars = [int(v) for v in args["var"].split(',')]
+    vars.extend(plot_vars)
+Var = [header['vars'][i] for i in plot_vars]
 
 varmap = {29:44,28:32,27:16,4:'CO2',6:'O',
 7:'N2',9:'Ar',5:'CO',
@@ -195,51 +223,98 @@ colors = [cmap(i) for i in range(20)]
 if not args['average']:
     for ifile in range(len(alldata)):
         ivar = 0
-        for pvar in args["var"].split(','):
-            pdata = alldata[ifile][int(pvar)][0,0,iminalt:]
-            if args['alog']: 
-                pdata= np.where(pdata > 0, np.log10(pdata), 0)
+        if args['mix']:
+            total = np.zeros_like(alldata[ifile][plot_vars[0]][0,0,iminalt:])
+            for idx in plot_vars:
+                total += alldata[ifile][idx][0,0,iminalt:]
+            for pvar in plot_vars:
+                pdata = alldata[ifile][pvar][0,0,iminalt:] / total
+                if args['alog']:
+                    pdata = np.where(pdata > 0, np.log10(pdata), 0)
+                if min(pdata) < minv:
+                    minv = min(pdata)
+                if max(pdata) > maxv:
+                    maxv = max(pdata)
+
+                if ndirs > 1:
+                    linestyle = dirmap[directories[ifile]]
+                line, = pp.plot(pdata,alts[iminalt:],color=colors[ivar],ls=linestyle)
+                if ndirs <= 1:
+                    label = name_dict.get(header["vars"][pvar], header["vars"][pvar])
+                    line.set_label(label)
+                ivar +=1
+        else:
+            for pvar in plot_vars:
+                pdata = alldata[ifile][pvar][0,0,iminalt:]
+                if args['alog']:
+                    pdata= np.where(pdata > 0, np.log10(pdata), 0)
+                if min(pdata) < minv:
+                    minv = min(pdata)
+                if max(pdata) > maxv:
+                    maxv = max(pdata)
+
+                if ndirs > 1:
+                    linestyle = dirmap[directories[ifile]]
+                line, = pp.plot(pdata,alts[iminalt:],color=colors[ivar],ls=linestyle)
+                if ndirs <= 1:
+                    if args['reactions']:
+                        line.set_label(marsreactions[int(header['vars'][pvar])])
+                    else:
+                        line.set_label(name_dict[header["vars"][pvar]])
+
+                ivar +=1
+    if ndirs <= 1 and sats:
+        line.set_label('MGITM')
+
+else:
+    meandata = df.mean()
+    if args['mix']:
+        total = np.zeros_like(meandata[plot_vars[0]][0,0,iminalt:])
+        for pvar in plot_vars:
+            total += meandata[pvar][0,0,iminalt:]
+        ivar = 0
+        for pvar in plot_vars:
+            pdata = meandata[pvar][0,0,iminalt:] / total
+            if args['alog']:
+                pdata = np.where(pdata > 0, np.log10(pdata), 0)
+            if min(pdata) < minv:
+                minv = min(pdata)
+            if max(pdata) > maxv:
+                maxv = max(pdata)
+            ax.plot(pdata,alts[iminalt:],color=colors[ivar],linewidth=2,
+                    label=name_dict.get(header["vars"][pvar], header["vars"][pvar]))
+            if args['stddev']:
+                tempdata = df[pvar].to_numpy()
+                newdata = np.zeros((len(df),np.shape(tempdata[0])[2]))
+                for i in range(len(newdata)):
+                    newdata[i,:] = tempdata[i][0,0,iminalt:]
+                stddata = np.std(newdata,0)
+                if args['alog']:
+                    stddata = np.log10(stddata)
+                pp.fill_betweenx(alts[iminalt:],pdata-stddata,pdata+stddata)
+            ivar +=1
+    else:
+        for pvar in plot_vars:
+            pdata = meandata[pvar][0,0]
+            if args['alog']:
+                pdata = np.log10(pdata)
             if min(pdata) < minv:
                 minv = min(pdata)
             if max(pdata) > maxv:
                 maxv = max(pdata)
 
-            if ndirs > 1:
-                linestyle = dirmap[directories[ifile]]
-            line, = pp.plot(pdata,alts[iminalt:],color=colors[ivar],ls=linestyle)
-            if ndirs <= 1:
-                if args['reactions']:
-                    line.set_label(marsreactions[int(header['vars'][int(pvar)])])
-                else:
-                    line.set_label(name_dict[header["vars"][int(pvar)]])
+            ax.plot(pdata,alts[iminalt:],'k',linewidth=2,label='MGITM')
 
-            ivar +=1
-    if ndirs <= 1 and sats:
-        line.set_label('MGITM')
- 
-else: 
-    meandata = df.mean()
-    for pvar in args["var"].split(','):
-        pdata = meandata[int(pvar)][0,0]
-        if args['alog']: 
-            pdata = np.log10(pdata)
-        if min(pdata) < minv:
-            minv = min(pdata)
-        if max(pdata) > maxv:
-            maxv = max(pdata)
+            if args['stddev']:
+                tempdata = df[pvar].to_numpy()
+                newdata = np.zeros((len(df),np.shape(tempdata[0])[2]))
+                for i in range(len(newdata)):
+                    newdata[i,:] = tempdata[i][0,0]
+                stddata = np.std(newdata,0)
+                if args['alog']:
 
-        ax.plot(pdata,alts[iminalt:],'k',linewidth=2,label='MGITM') 
-
-        if args['stddev']:
-            tempdata = df[int(pvar)].to_numpy()
-            newdata = np.zeros((len(df),np.shape(tempdata[0])[2]))
-            for i in range(len(newdata)):
-                newdata[i,:] = tempdata[i][0,0]
-            stddata = np.std(newdata,0)
-            if args['alog']: 
-
-                stddata = np.log10(stddata)
-            pp.fill_betweenx(alts[iminalt:],pdata-stddata,pdata+stddata)
+                    stddata = np.log10(stddata)
+                pp.fill_betweenx(alts[iminalt:],pdata-stddata,pdata+stddata)
 if args['min'] is not None:
     mini = args['min']
 else:
@@ -269,7 +344,7 @@ def testave():
     print('difference between averages is:')
     print(sum - meandata[29][0,0])
 
-    vars = args["var"].split(',')
+    vars = plot_vars
 
 if sats:
     # satsdir = '/home/dpawlows/Docs/Research/MGITM-MAVENcomparison2023/DD2/NGIMS/'
@@ -292,13 +367,13 @@ if sats:
         version = 'v08'
         dentype = 'csn'
         inboundonly = True 
-        if '+' in varcmap[vars[3]]:
+        if '+' in varcmap.get(plot_vars[0], ''):
             speciesColumn = 'ion_mass'
             qualityFlag = ['SCP','SC0']
             version = 'v08'
             dentype = 'ion'
 
-        varlist = [varmap[v] for v in vars[3:]]
+        varlist = [varmap[v] for v in plot_vars if v in varmap]
         files = ngims.getfiles(start,end,dentype=dentype,version=version,dir=satsdir)
         if len(files) == 0:
             print('No NGIMS files found!')
@@ -430,7 +505,10 @@ else:
     else:
         pp.legend(loc='upper left',frameon=False)
 # pp.xlabel(name_dict[header['vars'][vars[3]]])
-pp.xlabel('Density')
+if args['mix']:
+    pp.xlabel('Mixing Ratio')
+else:
+    pp.xlabel('Density')
 # pp.xlabel('Production Rate (m$^{-3}s^{-1}$)')
 # pp.xlabel('[e-] [m$^{-3}$]')
 pp.ylabel('Altitude (km)')

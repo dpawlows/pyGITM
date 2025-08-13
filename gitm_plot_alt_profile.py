@@ -30,6 +30,7 @@ def get_args(argv):
     minv = None
     maxv = None
     oco2 = 0
+    pressure = 0
 
     help = 0
 
@@ -95,6 +96,11 @@ def get_args(argv):
                 oco2 = 1
                 IsFound = 1
 
+            m = re.match(r'-press',arg)
+            if m:
+                pressure = 1
+                IsFound = 1
+
             m = re.match(r'-h',arg)
             if m:
                 help = 1
@@ -116,7 +122,8 @@ def get_args(argv):
             'diff':diff,
             'minv':minv,
             'maxv':maxv,
-            'oco2':oco2}
+            'oco2':oco2,
+            'pressure':pressure}
 
     return args
 
@@ -149,6 +156,7 @@ if (args["help"]):
     print('   -alog: plot the log of the variable')
     print('   -diff=backgroundFiles: plot the difference between 2 sets of files')
     print('   -oco2: calculate and plot O/CO2 ratio (requires 3DALL file; cannot be used with -var)')
+    print('   -press: use pressure for the vertical coordinate')
     print('   Non-KW arg: files.')
 
     iVar = 0
@@ -170,8 +178,27 @@ file = filelist[0]
 try:
     iSZA = header["vars"].index('SolarZenithAngle')
     vars = [0,1,2,iSZA]
-except: 
+except:
     vars = [0,1,2]
+
+species_inds = []
+temp_index = None
+if args['pressure']:
+    # Identify temperature variable
+    for tname in ['Temperature', 'Tn']:
+        if tname in header['vars']:
+            temp_index = header['vars'].index(tname)
+            break
+    if temp_index is None:
+        print('Temperature not available to calculate pressure')
+        exit(1)
+    if temp_index not in vars:
+        vars.append(temp_index)
+    # Identify all species densities
+    species_inds = [i for i, name in enumerate(header['vars']) if name.startswith('[')]
+    for idx in species_inds:
+        if idx not in vars:
+            vars.append(idx)
 
 diff = False
 if args['diff'] != '0':
@@ -220,11 +247,19 @@ AllAlts = []
 AllSZA = []
 
 data = read_gitm_one_file(file, vars)
-    
+
 [nLons, nLats, nAlts] = data[0].shape
 Alts = data[2][0][0]/1000.0
 Lons = data[0][:,0,0]*rtod
 Lats = data[1][0,:,0]*rtod
+
+if args['pressure']:
+    kb = 1.380649e-23
+    temp = data[temp_index]
+    dens = np.zeros_like(temp)
+    for idx in species_inds:
+        dens += data[idx]
+    pressure = dens * kb * temp
 
 ialt1 = find_nearest_index(Alts,90)
 ialt2 = find_nearest_index(Alts,300)
@@ -238,9 +273,13 @@ if diff:
         exit(1)
     background = read_gitm_one_file(bFile,vars)
 
+Press = None
 if args['cut'] == 'loc':
     ilon = find_nearest_index(Lons,plon)
     ilat = find_nearest_index(Lats,plat)
+
+    if args['pressure']:
+        Press = pressure[ilon, ilat, ialt1:ialt2+1]
 
     for ivar in var_list:
         if ivar == 'O/CO2':
@@ -267,6 +306,8 @@ if args['cut'] == 'loc':
 if args['cut'] == 'sza':
     AllSZA.append(data[iSZA][:,:,0])
     mask = (AllSZA[-1] >= smin) & (AllSZA[-1] <= smax )
+    if args['pressure']:
+        Press = pressure[:,:,ialt1:ialt2+1][mask].mean(axis=0)
     for ivar in var_list:
         if ivar == 'O/CO2':
             if diff:
@@ -301,8 +342,10 @@ if args['cut']  == 'sza':
     AllSZA = np.array(AllSZA)
 
 fig = pp.figure()
-
-Alts = Alts[ialt1:ialt2+1]
+if args['pressure']:
+    Alts = Press
+else:
+    Alts = Alts[ialt1:ialt2+1]
 
 cmap = 'plasma'
 i=0
@@ -351,7 +394,10 @@ else:
 # if i < len(Var)-1:
 #     ax.get_xaxis().set_ticklabels([])
 
-pp.ylabel('Alt (km)')
+if args['pressure']:
+    pp.ylabel('Pressure (Pa)')
+else:
+    pp.ylabel('Alt (km)')
 if args['IsLog']:
     xlabel = 'Log '+xlabel
 pp.xlabel(xlabel)
@@ -366,10 +412,15 @@ else:
     maxv = args['maxv']
 
 pp.xlim([minv,maxv])
-pp.ylim([90,250])
+if args['pressure']:
+    ax.set_yscale('log')
+    ax.set_ylim([Alts.max(), Alts.min()])
+else:
+    pp.ylim([90,250])
 
    
 
-outfile = 'altprofile_var{}_{}.png'.format(svar,time.strftime('%y%m%d_%H%M%S'))
+prefix = 'pressprofile' if args['pressure'] else 'altprofile'
+outfile = '{}_var{}_{}.png'.format(prefix, svar, time.strftime('%y%m%d_%H%M%S'))
 print("Writing to file: {}".format(outfile))
 pp.savefig(outfile)

@@ -30,9 +30,9 @@ def get_args(argv):
     minv = None
     maxv = None
     oco2 = 0
+    grid = None 
 
     help = 0
-
 
     for arg in argv:
 
@@ -100,6 +100,10 @@ def get_args(argv):
                 help = 1
                 IsFound = 1
 
+            m = re.match(r'-grid',arg)
+            if m:
+                grid = 1
+                IsFound = 1
 
             if IsFound==0 and not(arg==argv[0]):
                 filelist.append(arg)
@@ -116,7 +120,8 @@ def get_args(argv):
             'diff':diff,
             'minv':minv,
             'maxv':maxv,
-            'oco2':oco2}
+            'oco2':oco2,
+            'grid':grid}
 
     return args
 
@@ -364,6 +369,12 @@ if args['maxv'] == None:
     maxv = max(AllData1D)
 else:
     maxv = args['maxv']
+
+if ivar == 'O/CO2':
+    pp.axvline(x=1,linestyle='--')
+
+if args['grid'] is not None:
+    pp.grid(True)  # Turn the grid on
 
 pp.xlim([minv,maxv])
 pp.ylim([90,250])

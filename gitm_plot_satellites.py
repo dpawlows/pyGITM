@@ -12,11 +12,12 @@ import ngims
 import rose
 import marstiming as mt 
 
-minalt = 80
-
+minalt = 0
+minaltplot = 80
 def find_homopause(n2, ar, alts):
     ratio = n2 / ar
-    idx = np.where(ratio >= 1.25)[0]
+    idx = np.where(ratio <= ratio[0]*1.5)[0]
+
     if len(idx) == 0:
         return None
     i_last = idx[-1]
@@ -360,7 +361,7 @@ maxden = pdata[inearest]
 if plotmaxden:
     pp.ax([-999,1e30],[alts[imaxden],alts[imaxden]],'r--')
 # pp.plot([maxden,maxden],[0,300],'r--',alpha=.7)
-pp.ylim([minalt,300])
+pp.ylim([minaltplot,300])
 pp.xlim([mini,maxi])
 
 ### Test the average 

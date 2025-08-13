@@ -11,6 +11,7 @@ from matplotlib.gridspec import GridSpec
 from gitm_routines import *
 import re
 import sys
+import os
 
 rtod = 180.0/3.141592
 
@@ -28,6 +29,7 @@ def get_args(argv):
     smax = -100.0
     minv = None
     maxv = None
+    oco2 = 0
 
     help = 0
 
@@ -88,6 +90,11 @@ def get_args(argv):
                 IsLog = 1
                 IsFound = 1
 
+            m = re.match(r'-oco2',arg)
+            if m:
+                oco2 = 1
+                IsFound = 1
+
             m = re.match(r'-h',arg)
             if m:
                 help = 1
@@ -108,7 +115,8 @@ def get_args(argv):
             'smax':smax,
             'diff':diff,
             'minv':minv,
-            'maxv':maxv}
+            'maxv':maxv,
+            'oco2':oco2}
 
     return args
 
@@ -140,6 +148,7 @@ if (args["help"]):
     print('   -max=max: maximum value to plot')
     print('   -alog: plot the log of the variable')
     print('   -diff=backgroundFiles: plot the difference between 2 sets of files')
+    print('   -oco2: calculate and plot O/CO2 ratio (requires 3DALL file)')
     print('   Non-KW arg: files.')
 
     iVar = 0
@@ -175,11 +184,30 @@ if args['diff'] != '0':
         print('Only 1 file should be specified')
         exit(1)
     bFile = backgroundFilelist[0]
-
-vars.extend([int(v) for v in args["var"].split(',')])
-Var = [header['vars'][int(i)] for i in args['var'].split(',')]
-nvars = len(args['var'].split(','))
-AllData = {a:[] for a in args['var'].split(',')}
+var_list = args['var'].split(',')
+if args['oco2']:
+    if not os.path.basename(file).startswith('3DALL'):
+        print('O/CO2 ratio can only be calculated from 3DALL files')
+        exit(1)
+    try:
+        o_index = header['vars'].index('[O]')
+        co2_index = header['vars'].index('[CO!D2!N]')
+    except ValueError:
+        print('O or CO2 not available to calculate O/CO2')
+        exit(1)
+    for idx in [o_index, co2_index]:
+        if idx not in vars:
+            vars.append(idx)
+    var_list.append('O/CO2')
+vars.extend([int(v) for v in var_list if v.isdigit()])
+Var = []
+for v in var_list:
+    if v == 'O/CO2':
+        Var.append('O/CO2')
+    else:
+        Var.append(header['vars'][int(v)])
+nvars = len(var_list)
+AllData = {a:[] for a in var_list}
 AllData2D = []
 AllAlts = []
 AllSZA = []
@@ -209,32 +237,58 @@ if args['cut'] == 'loc':
     ilon = find_nearest_index(Lons,plon)
     ilat = find_nearest_index(Lats,plat)
 
-    for ivar in args['var'].split(','):
-        if diff:
-            temp = (data[int(ivar)][ilon,ilat,ialt1:ialt2+1]-background[int(ivar)][ilon,ilat,ialt1:ialt2+1])/ \
-                background[int(ivar)][ilon,ilat,ialt1:ialt2+1]*100.0
+    for ivar in var_list:
+        if ivar == 'O/CO2':
+            if diff:
+                num = data[o_index][ilon,ilat,ialt1:ialt2+1] / \
+                      data[co2_index][ilon,ilat,ialt1:ialt2+1]
+                denom = background[o_index][ilon,ilat,ialt1:ialt2+1] / \
+                        background[co2_index][ilon,ilat,ialt1:ialt2+1]
+                temp = (num - denom) / denom * 100.0
+            else:
+                o = data[o_index][ilon,ilat,ialt1:ialt2+1]
+                co2 = data[co2_index][ilon,ilat,ialt1:ialt2+1]
+                temp = np.divide(o, co2, out=np.zeros_like(o), where=co2!=0)
         else:
-            temp = data[int(ivar)][ilon,ilat,ialt1:ialt2+1]          
+            if diff:
+                temp = (data[int(ivar)][ilon,ilat,ialt1:ialt2+1]-background[int(ivar)][ilon,ilat,ialt1:ialt2+1])/ \
+                    background[int(ivar)][ilon,ilat,ialt1:ialt2+1]*100.0
+            else:
+                temp = data[int(ivar)][ilon,ilat,ialt1:ialt2+1]
 
         AllData[ivar].append(temp)
 
 
-if args['cut'] == 'sza':        
+if args['cut'] == 'sza':
     AllSZA.append(data[iSZA][:,:,0])
-    mask = (AllSZA[-1] >= smin) & (AllSZA[-1] <= smax ) 
-    for ivar in args['var'].split(','):
-        if diff:
-            #Calculate the mean of both sets of data and then calculate the percent difference.
-            mean1 = data[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
-            mean2 = background[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
-            temp = (mean1-mean2)/mean2*100.
-
+    mask = (AllSZA[-1] >= smin) & (AllSZA[-1] <= smax )
+    for ivar in var_list:
+        if ivar == 'O/CO2':
+            if diff:
+                o1 = data[o_index][:,:,ialt1:ialt2+1][mask]
+                co21 = data[co2_index][:,:,ialt1:ialt2+1][mask]
+                ratio1 = np.divide(o1, co21, out=np.zeros_like(o1), where=co21!=0).mean(axis=0)
+                o2 = background[o_index][:,:,ialt1:ialt2+1][mask]
+                co22 = background[co2_index][:,:,ialt1:ialt2+1][mask]
+                ratio2 = np.divide(o2, co22, out=np.zeros_like(o2), where=co22!=0).mean(axis=0)
+                temp = (ratio1 - ratio2) / ratio2 * 100.0
+            else:
+                o = data[o_index][:,:,ialt1:ialt2+1][mask]
+                co2 = data[co2_index][:,:,ialt1:ialt2+1][mask]
+                temp = np.divide(o, co2, out=np.zeros_like(o), where=co2!=0).mean(axis=0)
         else:
-            temp = data[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+            if diff:
+                #Calculate the mean of both sets of data and then calculate the percent difference.
+                mean1 = data[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+                mean2 = background[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+                temp = (mean1-mean2)/mean2*100.
+
+            else:
+                temp = data[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
 
         AllData[ivar].append(temp)
 
-for ivar in args['var'].split(','):
+for ivar in var_list:
     AllData[ivar] = np.array(AllData[ivar])
 
 
@@ -253,7 +307,7 @@ if len(Var) == 1:
 else:
     marker = '.'
 
-for ivar in args['var'].split(','):
+for ivar in var_list:
     AllData1D = AllData[ivar][0]
     if (ivar == '3' and (not diff)) or args['IsLog']:
         mask = (AllData1D != 0.0) 
@@ -273,14 +327,16 @@ for ivar in args['var'].split(','):
     i+=1
 
 if len(Var) == 1:
-    svar = int(args['var'])
+    svar = var_list[0]
+    if svar.isdigit():
+        svar = f'{int(svar):02d}'
     if diff:
-        xlabel = '{}\n% Diff'.format(Var[i])
+        xlabel = '{}\n% Diff'.format(Var[0])
     else:
         xlabel = Var[0]
 else:
     xlabel = 'Density'
-    svar = 99
+    svar = 'multi'
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
     ax.legend(loc='lower left', bbox_to_anchor=(1, 0.5),frameon=False)
@@ -307,6 +363,6 @@ pp.ylim([90,250])
 
    
 
-outfile = 'altprofile_var{:02d}_{}.png'.format(svar,time.strftime('%y%m%d_%H%M%S'))
+outfile = 'altprofile_var{}_{}.png'.format(svar,time.strftime('%y%m%d_%H%M%S'))
 print("Writing to file: {}".format(outfile))
 pp.savefig(outfile)

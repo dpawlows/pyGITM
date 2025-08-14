@@ -253,7 +253,7 @@ else:
 
 cmap = 'plasma'
 i=0
-ax = pp.subplot(121)
+ax = pp.subplot(111)
 if len(Var) == 1:
     marker = '+'
 else:

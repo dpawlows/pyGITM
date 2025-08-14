@@ -92,10 +92,10 @@ try:
 except:
     vars = [0,1,2]
 
-# Only include neutral species (ions have a '+' in their names)
+# Only include neutral species (ions have a '+' and electrons are '[e-]')
 species_inds = [
     i for i, name in enumerate(header['vars'])
-    if name.startswith('[') and '+' not in name
+    if name.startswith('[') and '+' not in name and 'e-' not in name.lower()
 ]
 def _norm_species(name):
     return (

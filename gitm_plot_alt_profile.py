@@ -46,7 +46,7 @@ def get_args(argv):
     parser.add_argument("-press", dest="pressure", action="store_true", help="Use pressure as vertical coordinate")
     parser.add_argument("-grid", action="store_true", help="Enable grid on plot")
     parser.add_argument("--list-vars", action="store_true", help="List available variables and exit")
-    parser.add_argument("-mix", dest="mixing", action="store_true", help="Plot mixing ratio for all species")
+    parser.add_argument("-mix", dest="mixing", action="store_true", help="Plot mixing ratio for neutral species")
 
     args = parser.parse_args(argv[1:])
 
@@ -92,7 +92,11 @@ try:
 except:
     vars = [0,1,2]
 
-species_inds = [i for i, name in enumerate(header['vars']) if name.startswith('[')]
+# Only include neutral species (ions have a '+' in their names)
+species_inds = [
+    i for i, name in enumerate(header['vars'])
+    if name.startswith('[') and '+' not in name
+]
 def _norm_species(name):
     return (
         name.replace('[', '').replace(']', '')

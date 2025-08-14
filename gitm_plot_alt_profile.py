@@ -46,6 +46,7 @@ def get_args(argv):
     parser.add_argument("-press", dest="pressure", action="store_true", help="Use pressure as vertical coordinate")
     parser.add_argument("-grid", action="store_true", help="Enable grid on plot")
     parser.add_argument("--list-vars", action="store_true", help="List available variables and exit")
+    parser.add_argument("-mix", dest="mixing", action="store_true", help="Plot mixing ratio for neutral species")
 
     args = parser.parse_args(argv[1:])
 
@@ -55,6 +56,9 @@ def get_args(argv):
     elif args.cut == "sza":
         if args.smin <= -50 or args.smax <= -50:
             parser.error("cut=sza requires -smin and -smax")
+
+    if args.mixing and (args.var is not None or args.oco2):
+        parser.error("-mix cannot be combined with -var or -oco2")
 
     return vars(args)
 
@@ -88,7 +92,20 @@ try:
 except:
     vars = [0,1,2]
 
-species_inds = []
+# Only include neutral species (ions have a '+' and electrons are '[e-]')
+species_inds = [
+    i for i, name in enumerate(header['vars'])
+    if name.startswith('[') and '+' not in name and 'e-' not in name.lower()
+]
+def _norm_species(name):
+    return (
+        name.replace('[', '').replace(']', '')
+        .replace('!D', '').replace('!N', '').replace('!U', '')
+        .lower()
+    )
+norm_names = [_norm_species(n) for n in header['vars']]
+n2_index = norm_names.index('n2') if 'n2' in norm_names else None
+ar_index = norm_names.index('ar') if 'ar' in norm_names else None
 temp_index = None
 if args['pressure']:
     # Identify temperature variable
@@ -101,8 +118,11 @@ if args['pressure']:
         exit(1)
     if temp_index not in vars:
         vars.append(temp_index)
-    # Identify all species densities
-    species_inds = [i for i, name in enumerate(header['vars']) if name.startswith('[')]
+    for idx in species_inds:
+        if idx not in vars:
+            vars.append(idx)
+
+if args.get('mixing'):
     for idx in species_inds:
         if idx not in vars:
             vars.append(idx)
@@ -118,7 +138,10 @@ if args['diff'] != '0':
         print('Only 1 file should be specified')
         exit(1)
     bFile = backgroundFilelist[0]
-if args['oco2']:
+if args.get('mixing'):
+    var_list = [str(i) for i in species_inds]
+    Var = [header['vars'][i] for i in species_inds]
+elif args['oco2']:
     if args['var'] is not None:
         print('Cannot specify both -var and -oco2')
         exit(1)
@@ -135,18 +158,19 @@ if args['oco2']:
         if idx not in vars:
             vars.append(idx)
     var_list = ['O/CO2']
+    Var = ['O/CO2']
 else:
     if args['var'] is None:
-        print('Either -var or -oco2 must be specified')
+        print('Either -var, -oco2, or -mix must be specified')
         exit(1)
     var_list = args['var'].split(',')
+    Var = []
+    for v in var_list:
+        if v == 'O/CO2':
+            Var.append('O/CO2')
+        else:
+            Var.append(header['vars'][int(v)])
 vars.extend([int(v) for v in var_list if v.isdigit()])
-Var = []
-for v in var_list:
-    if v == 'O/CO2':
-        Var.append('O/CO2')
-    else:
-        Var.append(header['vars'][int(v)])
 nvars = len(var_list)
 AllData = {a:[] for a in var_list}
 AllData2D = []
@@ -156,7 +180,7 @@ AllSZA = []
 data = read_gitm_one_file(file, vars)
 
 [nLons, nLats, nAlts] = data[0].shape
-Alts = data[2][0][0]/1000.0
+AltKm = data[2][0][0]/1000.0
 Lons = data[0][:,0,0]*rtod
 Lats = data[1][0,:,0]*rtod
 
@@ -168,8 +192,8 @@ if args['pressure']:
         dens += data[idx]
     pressure = dens * kb * temp
 
-ialt1 = find_nearest_index(Alts,90)
-ialt2 = find_nearest_index(Alts,300)
+ialt1 = find_nearest_index(AltKm,90)
+ialt2 = find_nearest_index(AltKm,300)
 
 time = data["time"]
 
@@ -181,12 +205,21 @@ if diff:
     background = read_gitm_one_file(bFile,vars)
 
 Press = None
+mask = None
 if args['cut'] == 'loc':
     ilon = find_nearest_index(Lons,plon)
     ilat = find_nearest_index(Lats,plat)
 
     if args['pressure']:
         Press = pressure[ilon, ilat, ialt1:ialt2+1]
+    if args.get('mixing'):
+        total = np.zeros_like(data[species_inds[0]][ilon, ilat, ialt1:ialt2+1])
+        for idx in species_inds:
+            total += data[idx][ilon, ilat, ialt1:ialt2+1]
+        if diff:
+            base_total = np.zeros_like(background[species_inds[0]][ilon, ilat, ialt1:ialt2+1])
+            for idx in species_inds:
+                base_total += background[idx][ilon, ilat, ialt1:ialt2+1]
 
     for ivar in var_list:
         if ivar == 'O/CO2':
@@ -197,6 +230,15 @@ if args['cut'] == 'loc':
                 o_b = background[o_index][ilon, ilat, ialt1:ialt2+1]
                 co2_b = background[co2_index][ilon, ilat, ialt1:ialt2+1]
                 base_ratio = compute_ratio(o_b, co2_b)
+                temp = percent_diff(ratio, base_ratio)
+            else:
+                temp = ratio
+        elif args.get('mixing'):
+            prof = data[int(ivar)][ilon, ilat, ialt1:ialt2+1]
+            ratio = compute_ratio(prof, total)
+            if diff:
+                base = background[int(ivar)][ilon, ilat, ialt1:ialt2+1]
+                base_ratio = compute_ratio(base, base_total)
                 temp = percent_diff(ratio, base_ratio)
             else:
                 temp = ratio
@@ -216,6 +258,15 @@ if args['cut'] == 'sza':
     mask = (AllSZA[-1] >= smin) & (AllSZA[-1] <= smax )
     if args['pressure']:
         Press = pressure[:,:,ialt1:ialt2+1][mask].mean(axis=0)
+    if args.get('mixing'):
+        total = np.zeros(ialt2 - ialt1 + 1)
+        for idx in species_inds:
+            total += data[idx][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+        if diff:
+            base_total = np.zeros(ialt2 - ialt1 + 1)
+            for idx in species_inds:
+                base_total += background[idx][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+
     for ivar in var_list:
         if ivar == 'O/CO2':
             o = data[o_index][:,:,ialt1:ialt2+1][mask]
@@ -225,6 +276,15 @@ if args['cut'] == 'sza':
                 o_b = background[o_index][:,:,ialt1:ialt2+1][mask]
                 co2_b = background[co2_index][:,:,ialt1:ialt2+1][mask]
                 base_ratio = compute_ratio(o_b, co2_b).mean(axis=0)
+                temp = percent_diff(ratio, base_ratio)
+            else:
+                temp = ratio
+        elif args.get('mixing'):
+            prof = data[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+            ratio = compute_ratio(prof, total)
+            if diff:
+                base = background[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+                base_ratio = compute_ratio(base, base_total)
                 temp = percent_diff(ratio, base_ratio)
             else:
                 temp = ratio
@@ -238,6 +298,20 @@ if args['cut'] == 'sza':
 
         AllData[ivar].append(temp)
 
+homopause_alt = None
+if args.get('mixing') and n2_index is not None and ar_index is not None:
+    if args['cut'] == 'loc':
+        n2_prof = data[n2_index][ilon, ilat, ialt1:ialt2+1]
+        ar_prof = data[ar_index][ilon, ilat, ialt1:ialt2+1]
+    else:
+        n2_prof = data[n2_index][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+        ar_prof = data[ar_index][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+    ratio = compute_ratio(n2_prof, ar_prof)
+    surf_ratio = ratio[0]
+    idxs = np.where(ratio < 1.5 * surf_ratio)[0]
+    if len(idxs) > 0:
+        homopause_alt = AltKm[ialt1:ialt2+1][idxs[-1]]
+
 for ivar in var_list:
     AllData[ivar] = np.array(AllData[ivar])
 
@@ -249,7 +323,7 @@ fig = pp.figure()
 if args['pressure']:
     Alts = Press
 else:
-    Alts = Alts[ialt1:ialt2+1]
+    Alts = AltKm[ialt1:ialt2+1]
 
 cmap = 'plasma'
 i=0
@@ -289,11 +363,14 @@ if len(Var) == 1:
     else:
         xlabel = Var[0]
 else:
-    xlabel = 'Density'
+    if args.get('mixing'):
+        xlabel = 'Mixing Ratio'
+    else:
+        xlabel = 'Density'
     svar = 'multi'
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
-    ax.legend(loc='lower left', bbox_to_anchor=(1, 0.5),frameon=False)
+    ax.legend(loc='upper left', bbox_to_anchor=(1.05, 1),frameon=False)
    
 # if i < len(Var)-1:
 #     ax.get_xaxis().set_ticklabels([])
@@ -327,6 +404,10 @@ if args['pressure']:
     ax.set_ylim([Alts.max(), Alts.min()])
 else:
     pp.ylim([90,250])
+
+if homopause_alt is not None:
+    ax.text(0.95, 0.95, f'Homopause: {homopause_alt:.1f} km',
+            transform=ax.transAxes, ha='right', va='top')
 
    
 

@@ -171,6 +171,7 @@ else:
             Var.append('O/CO2')
         else:
             Var.append(header['vars'][int(v)])
+            
 vars.extend([int(v) for v in var_list if v.isdigit()])
 nvars = len(var_list)
 AllData = {a:[] for a in var_list}
@@ -193,11 +194,10 @@ if args['pressure']:
         dens += data[idx]
     pressure = dens * kb * temp
 
-ialt1 = find_nearest_index(AltKm,90)
+ialt1 = find_nearest_index(AltKm,0)
 ialt2 = find_nearest_index(AltKm,300)
 
 time = data["time"]
-
 if diff:
     if bFile == '':
         #It is possible that we don't have an output file at the same time.
@@ -252,7 +252,6 @@ if args['cut'] == 'loc':
                 temp = prof
 
         AllData[ivar].append(temp)
-
 
 if args['cut'] == 'sza':
     AllSZA.append(data[iSZA][:,:,0])
@@ -336,7 +335,7 @@ else:
 
 for ivar in var_list:
     AllData1D = AllData[ivar][0]
-    if (ivar == '3' and (not diff)) or args['IsLog']:
+    if args['IsLog']:
         mask = (AllData1D != 0.0) 
         AllData1D = np.log10(AllData1D[mask])
         Alts = Alts[mask]

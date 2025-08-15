@@ -87,11 +87,9 @@ if nFiles > 1:
 
 file = filelist[0]
 
-try:
-    iSZA = header["vars"].index('SolarZenithAngle')
-    vars = [0,1,2,iSZA]
-except:
-    vars = [0,1,2]
+# Only read position information from the file.  Solar zenith angles
+# will be calculated using gitm_routines.calculate_sza
+vars = [0,1,2]
 
 # Only include neutral species (ions have a '+' and electrons are '[e-]')
 species_inds = [
@@ -198,6 +196,13 @@ ialt1 = find_nearest_index(AltKm,0)
 ialt2 = find_nearest_index(AltKm,300)
 
 time = data["time"]
+
+# Calculate solar zenith angle for each lon/lat grid point
+sza = np.zeros((nLons, nLats))
+for ilon, lon in enumerate(Lons):
+    for ilat, lat in enumerate(Lats):
+        sza[ilon, ilat] = calculate_sza(lat, lon, time)
+
 if diff:
     if bFile == '':
         #It is possible that we don't have an output file at the same time.
@@ -253,8 +258,9 @@ if args['cut'] == 'loc':
 
         AllData[ivar].append(temp)
 
+
 if args['cut'] == 'sza':
-    AllSZA.append(data[iSZA][:,:,0])
+    AllSZA.append(sza)
     mask = (AllSZA[-1] >= smin) & (AllSZA[-1] <= smax )
     if args['pressure']:
         Press = pressure[:,:,ialt1:ialt2+1][mask].mean(axis=0)

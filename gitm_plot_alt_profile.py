@@ -15,7 +15,8 @@ import os
 
 rtod = 180.0/3.141592
 
-
+yminplot = 0
+ymaxplot = 250
 def compute_ratio(numer, denom):
     """Safely compute a ratio avoiding divide by zero."""
     return np.divide(numer, denom, out=np.zeros_like(numer), where=denom != 0)
@@ -403,7 +404,7 @@ if args['pressure']:
     ax.set_yscale('log')
     ax.set_ylim([Alts.max(), Alts.min()])
 else:
-    pp.ylim([90,250])
+    pp.ylim([yminplot,ymaxplot])
 
 if homopause_alt is not None:
     ax.text(0.95, 0.95, f'Homopause: {homopause_alt:.1f} km',

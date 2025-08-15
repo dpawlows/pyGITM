@@ -13,7 +13,8 @@ import rose
 import marstiming as mt 
 
 minalt = 0
-minaltplot = 80
+minaltplot = 50
+maxaltplot = 250
 def find_homopause(n2, ar, alts):
     ratio = n2 / ar
     idx = np.where(ratio <= ratio[0]*1.5)[0]
@@ -221,6 +222,7 @@ else:
     plot_vars = [int(v) for v in args["var"].split(',')]
     vars.extend(plot_vars)
     homopause_alt = None
+
 Var = [header['vars'][i] for i in plot_vars]
 
 varmap = {29:44,28:32,27:16,4:'CO2',6:'O',
@@ -322,8 +324,10 @@ if not args['average']:
                     if args['reactions']:
                         line.set_label(marsreactions[int(header['vars'][pvar])])
                     else:
-                        line.set_label(name_dict[header["vars"][pvar]])
-
+                        try:
+                            line.set_label(name_dict[header["vars"][pvar]])
+                        except:
+                            line.set_label(header["vars"][pvar])
                 ivar +=1
     if ndirs <= 1 and sats:
         line.set_label('MGITM')
@@ -414,7 +418,7 @@ else:
     if plotmaxden:
         pp.ax([-999,1e30],[alts[imaxden],alts[imaxden]],'r--')
     # pp.plot([maxden,maxden],[0,300],'r--',alpha=.7)
-    pp.ylim([minaltplot,300])
+    pp.ylim([minaltplot,maxaltplot])
 pp.xlim([mini,maxi])
 
 ### Test the average 

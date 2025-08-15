@@ -7,10 +7,10 @@ import numpy as np
 import re 
 from matplotlib import pyplot as pp
 from gitm_routines import *
-import pandas as pd 
-import ngims 
+import pandas as pd
+import ngims
 import rose
-import marstiming as mt 
+import marstiming as mt
 
 minalt = 0
 minaltplot = 50
@@ -29,6 +29,32 @@ def find_homopause(n2, ar, alts):
             return a0 + (1.25 - r0) * (a1 - a0) / (r1 - r0)
         return a0
     return alts[i_last]
+
+
+def compute_solar_geom(time, lon_rad, lat_rad):
+    """Return local time and solar zenith angle for a given time and location.
+
+    Parameters
+    ----------
+    time : datetime
+        Observation time.
+    lon_rad : float
+        Longitude in radians.
+    lat_rad : float
+        Latitude in radians.
+
+    Returns
+    -------
+    tuple of floats
+        Local time (hours) and solar zenith angle (degrees).
+    """
+
+    lon = np.degrees(lon_rad)
+    lat = np.degrees(lat_rad)
+    msd = mt.getMarsSolarGeometry(time)
+    lt = mt.getLTfromTime(time, lon)
+    sza = mt.getSZAfromTime(msd, lon, lat)
+    return lt, sza
 
 def get_args(argv):
 
@@ -606,9 +632,8 @@ if args['press']:
     pp.ylabel('Pressure (Pa)')
 else:
     pp.ylabel('Altitude (km)')
-msd = mt.getMarsSolarGeometry(data['time'])
-LT = mt.getLTfromTime(data['time'],data[0][0,0,0]*180/np.pi)
-SZA = mt.getSZAfromTime(msd,data[0][0,0,0]*180/np.pi, data[1][0,0,0]*180/np.pi)
-pp.title(f"{data['time'].strftime("%Y%m%d-%H:%M UT")}\n{LT:.1f} LT, {SZA:.1f} SZA")
+
+LT, SZA = compute_solar_geom(data['time'], data[0][0,0,0], data[1][0,0,0])
+pp.title(f"{data['time'].strftime('%Y%m%d-%H:%M UT')}\n{LT:.1f} LT, {SZA:.1f} SZA")
 pp.savefig('plot.png')
 # breakpoint()

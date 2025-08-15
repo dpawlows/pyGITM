@@ -206,20 +206,14 @@ if (args["help"]):
 
 filelist = args["filelist"]
 nFiles = len(filelist)
-calcsza = False
 plotsza = False
 if nFiles < 2:
     print('Please enter multiple files')
     exit(1)
-try:
-    iSZA = header["vars"].index('SolarZenithAngle')
-    vars = [0,1,2,iSZA]
 
-except: 
-    calcsza = True
-    header["vars"].append('SolarZenithAngle')
-    iSZA = header["vars"].index('SolarZenithAngle')
-    vars = [0,1,2]
+# Only read position information from the files.  SZA will be
+# calculated using gitm_routines.calculate_sza
+vars = [0, 1, 2]
 
 
 # Sort filenames based on year
@@ -265,8 +259,8 @@ for file in filelist:
 
     data = read_gitm_one_file(file, vars)
     AllTimes.append(data["time"])
-    
-    if (j == 0):    
+
+    if j == 0:
         [nLons, nLats, nAlts] = data[0].shape
         Alts = data[2][0][0]/1000.0
         Lons = data[0][:,0,0]*rtod
@@ -275,25 +269,21 @@ for file in filelist:
         ialt1 = find_nearest_index(Alts,minalt)
         ialt2 = find_nearest_index(Alts,maxalt)
 
-    if calcsza:
-        data[iSZA] = np.zeros((nLons,nLats,nAlts))
-        ilon = 0
-        for lon in Lons:
-            ilat = 0
-            for lat in Lats:
-                thissza = calculate_sza(lat,lon,AllTimes[-1])
-                data[iSZA][ilat,ilon,:] = thissza
+    # Calculate solar zenith angle for each lon/lat grid point
+    sza = np.zeros((nLons, nLats, nAlts))
+    for ilon, lon in enumerate(Lons):
+        for ilat, lat in enumerate(Lats):
+            thissza = calculate_sza(lat, lon, AllTimes[-1])
+            sza[ilon, ilat, :] = thissza
 
-                ilat += 1
-            ilon += 1
-        if plotsza:
-            Lo,La = np.meshgrid(Lons,Lats)
-            pp.figure()
-            cont = pp.contourf(Lo[1:-1,1:-1],La[1:-1,1:-1],data[iSZA][1:-1,1:-1,0],levels=30)
-            pp.colorbar(cont)
-            file = 'sza_{}.png'.format(AllTimes[-1].strftime("%Y%m%d:%H%M%S"))
-            print('Writing file {}...'.format(file))
-            pp.savefig(file)
+    if plotsza:
+        Lo, La = np.meshgrid(Lons, Lats, indexing='ij')
+        pp.figure()
+        cont = pp.contourf(Lo[1:-1,1:-1], La[1:-1,1:-1], sza[1:-1,1:-1,0], levels=30)
+        pp.colorbar(cont)
+        file = 'sza_{}.png'.format(AllTimes[-1].strftime("%Y%m%d:%H%M%S"))
+        print('Writing file {}...'.format(file))
+        pp.savefig(file)
     if diff:
         stime = str(AllTimes[-1].year)[2:]+str(AllTimes[-1].month).rjust(2,'0')+str(AllTimes[-1].day).rjust(2,'0')+\
             '_'+str(AllTimes[-1].hour).rjust(2,'0')+str(AllTimes[-1].minute).rjust(2,'0')
@@ -317,9 +307,9 @@ for file in filelist:
             AllData[ivar].append(temp)
 
 
-    if args['cut'] == 'sza':        
-        AllSZA.append(data[iSZA][:,:,0])
-        mask = (AllSZA[-1] >= smin) & (AllSZA[-1] <= smax ) 
+    if args['cut'] == 'sza':
+        AllSZA.append(sza[:, :, 0])
+        mask = (AllSZA[-1] >= smin) & (AllSZA[-1] <= smax )
         for ivar in args['var'].split(','):
             if diff:
 

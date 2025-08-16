@@ -635,5 +635,22 @@ else:
 
 LT, SZA = compute_solar_geom(data['time'], data[0][0,0,0], data[1][0,0,0])
 pp.title(f"{data['time'].strftime('%Y%m%d-%H:%M UT')}\n{LT:.1f} LT, {SZA:.1f} SZA")
-pp.savefig('plot.png')
+# Build an informative filename similar to gitm_plot_alt_profile
+var_list = args['var'].split(',') if isinstance(args['var'], str) and args['var'] != -1 else []
+if args['mix']:
+    svar = 'mix'
+elif var_list:
+    svar = var_list[0]
+    if svar.isdigit():
+        svar = f"{int(svar):02d}"
+    else:
+        svar = svar.replace('/', '_')
+    if len(var_list) > 1:
+        svar = 'multi'
+else:
+    svar = 'novar'
+prefix = 'presssatellite' if args['press'] else 'satellite'
+outfile = f"{prefix}_var{svar}_{data['time'].strftime('%y%m%d_%H%M%S')}.png"
+print(f"Writing to file: {outfile}")
+pp.savefig(outfile)
 # breakpoint()

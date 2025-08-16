@@ -71,6 +71,7 @@ def get_args(argv):
     reactions = False
     mix = False
     press = False
+    single = False
 
     for arg in argv:
 
@@ -132,6 +133,11 @@ def get_args(argv):
                 press = True
                 IsFound = 1
 
+            m = re.match(r'-single',arg)
+            if m:
+                single = True
+                IsFound = 1
+
             if IsFound==0 and not(arg==argv[0]):
                 filelist.append(arg)
 
@@ -148,6 +154,7 @@ def get_args(argv):
         'reactions':reactions,
         'mix':mix,
         'press':press,
+        'single':single,
     }
 
     return args
@@ -195,6 +202,7 @@ if (args["help"]):
     print('   -reactions: you are plotting reactions and you might want to plot the associated text')
     print('   -mix : plot mixing ratio of all neutral species')
     print('   -press : use pressure as vertical coordinate')
+    print('   -single : force one plot per file even with a single variable')
     print('   At end, list the files you want to plot')
 
     iVar = 0
@@ -320,8 +328,7 @@ else:
     yarrays = [alts for _ in alldata]
 
 if not args['average']:
-
-    if len(plot_vars) > 1 and len(alldata) > 1:
+    if len(alldata) > 1 and (len(plot_vars) > 1 or args['single']):
         for ifile, data in enumerate(alldata):
             fig, ax = pp.subplots()
             minv = np.inf
@@ -382,8 +389,14 @@ if not args['average']:
             var_list = args['var'].split(',') if isinstance(args['var'], str) and args['var'] != -1 else []
             if args['mix']:
                 svar = 'mix'
-            elif var_list:
+            elif len(var_list) > 1:
                 svar = 'multi'
+            elif len(var_list) == 1:
+                svar = var_list[0]
+                if svar.isdigit():
+                    svar = f"{int(svar):02d}"
+                else:
+                    svar = svar.replace('/', '_')
             else:
                 svar = 'novar'
             prefix = 'presssatellite' if args['press'] else 'satellite'

@@ -11,6 +11,7 @@ import pandas as pd
 import ngims
 import rose
 import marstiming as mt
+from concurrent.futures import ThreadPoolExecutor
 
 minalt = 0
 minaltplot = 50
@@ -180,7 +181,7 @@ if (args["help"]):
 
     print('Plot a 1D GITM file (1D??? or a satellite file)')
     print('Usage : ')
-    print('gitm_plot_satellites.py -var=N -alog ')
+    print('gitm_plot_satellite.py -var=N -alog ')
     print('       -help [*.bin or a file]')
     print('   -help : print this message')
     print('   -var=var1,var2,var3... : variable(s) to plot')
@@ -263,29 +264,37 @@ fig,ax = pp.subplots()
 minv = 9.e20
 maxv = -9.e20
 
+
+# Parallel loading of files
 alldata = []
 pressures = []
 directories = []
-i = 0
 
-
-for file in filelist:
-    match = re.match(r'(.*?)\/',filelist[i])
-    if match:
-        directories.append(match.group(1))
-    data = read_gitm_one_file(file,vars)
+def _load_file(fname):
+    match = re.match(r'(.*?)/', fname)
+    directory = match.group(1) if match else None
+    data = read_gitm_one_file(fname, vars)
+    pressure = None
     if args['press']:
         temp = data[temp_index]
         dens = np.zeros_like(temp)
         for idx in species_inds:
             dens += data[idx]
-        pressures.append((dens * kb * temp)[0,0])
+        pressure = (dens * kb * temp)[0,0]
+    return fname, data, directory, pressure
 
-    if i == 0:
+with ThreadPoolExecutor() as executor:
+    results = list(executor.map(_load_file, filelist))
+
+for fname, data, directory, pressure in results:
+    if directory:
+        directories.append(directory)
+    if args['press']:
+        pressures.append(pressure)
+    if not alldata:
         alts = data[2][0,0]/1000. #Assumes the altitude grid doesn't change with file
         iminalt = find_nearest_index(alts,minalt)
-    alldata.append(data) #an array with all sat files data
-    i+=1
+    alldata.append(data)
 
 df = pd.DataFrame(alldata)
 #plot options depending on the dataset
@@ -311,6 +320,78 @@ else:
     yarrays = [alts for _ in alldata]
 
 if not args['average']:
+
+    if len(plot_vars) > 1 and len(alldata) > 1:
+        for ifile, data in enumerate(alldata):
+            fig, ax = pp.subplots()
+            minv = np.inf
+            maxv = -np.inf
+            if args['press']:
+                yvals = yarrays[ifile][iminalt:]
+                ax.set_yscale('log')
+                ax.set_ylim([yvals.max(), yvals.min()])
+            else:
+                yvals = yarrays[ifile][iminalt:]
+                ax.set_ylim([minaltplot, maxaltplot])
+            ivar = 0
+            if args['mix']:
+                total = np.zeros_like(data[plot_vars[0]][0,0,iminalt:])
+                for idx in plot_vars:
+                    total += data[idx][0,0,iminalt:]
+                for pvar in plot_vars:
+                    pdata = data[pvar][0,0,iminalt:] / total
+                    if args['alog']:
+                        pdata = np.where(pdata > 0, np.log10(pdata), 0)
+                    minv = min(minv, np.min(pdata))
+                    maxv = max(maxv, np.max(pdata))
+                    line, = ax.plot(pdata, yvals, color=colors[ivar])
+                    label = name_dict.get(header['vars'][pvar], header['vars'][pvar])
+                    line.set_label(label)
+                    ivar += 1
+            else:
+                for pvar in plot_vars:
+                    pdata = data[pvar][0,0,iminalt:]
+                    if args['alog']:
+                        pdata = np.where(pdata > 0, np.log10(pdata), 0)
+                    minv = min(minv, np.min(pdata))
+                    maxv = max(maxv, np.max(pdata))
+                    line, = ax.plot(pdata, yvals, color=colors[ivar])
+                    if args['reactions']:
+                        line.set_label(marsreactions[int(header['vars'][pvar])])
+                    else:
+                        label = name_dict.get(header['vars'][pvar], header['vars'][pvar])
+                        line.set_label(label)
+                    ivar += 1
+            mini = args['min'] if args['min'] is not None else minv
+            maxi = args['max'] if args['max'] is not None else maxv
+            ax.set_xlim([mini, maxi])
+            if args['mix']:
+                ax.set_xlabel('Mixing Ratio')
+            else:
+                ax.set_xlabel('Density')
+            ax.set_ylabel('Pressure (Pa)' if args['press'] else 'Altitude (km)')
+            if args['mix'] and n2_idx is not None and ar_idx is not None:
+                n2_data = data[n2_idx][0,0,iminalt:]
+                ar_data = data[ar_idx][0,0,iminalt:]
+                homopause_alt = find_homopause(n2_data, ar_data, alts[iminalt:])
+                if homopause_alt is not None and not args['press']:
+                    ax.text(0.95,0.95,f"homopause: {homopause_alt:.1f} km", transform=ax.transAxes, ha='right', va='top')
+            LT, SZA = compute_solar_geom(data['time'], data[0][0,0,0], data[1][0,0,0])
+            ax.set_title(f"{data['time'].strftime('%Y%m%d-%H:%M UT')}\n{LT:.1f} LT, {SZA:.1f} SZA")
+            ax.legend(loc='upper left', frameon=False)
+            var_list = args['var'].split(',') if isinstance(args['var'], str) and args['var'] != -1 else []
+            if args['mix']:
+                svar = 'mix'
+            elif var_list:
+                svar = 'multi'
+            else:
+                svar = 'novar'
+            prefix = 'presssatellite' if args['press'] else 'satellite'
+            outfile = f"{prefix}_var{svar}_{data['time'].strftime('%y%m%d_%H%M%S')}.png"
+            print(f"Writing to file: {outfile}")
+            pp.savefig(outfile)
+            pp.close(fig)
+        sys.exit(0)
     for ifile in range(len(alldata)):
         ivar = 0
         if args['mix']:

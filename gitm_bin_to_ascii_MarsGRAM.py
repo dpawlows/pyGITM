@@ -177,8 +177,6 @@ def process_one_file(file, minalt, coordinates,header):
                         if newData[var][ilon,imin,ialt-ialtstart] < 0:
                             # Still have an issue? Exponential interpolation
                             Y = np.log10(data[var][ilon,imin:iend+1,ialt]) #get the original data surrounding the negative
-                            if np.shape(X) != np.shape(Y):
-                                breakpoint()
                             od = interp1d(X[imin-2:imin-2+len(Y)],Y,fill_value='extrapolate')
                             newData[var][ilon,imin,ialt-ialtstart] = 10**newX[imin-1:imin+2][1]
 

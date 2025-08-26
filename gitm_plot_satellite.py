@@ -72,6 +72,7 @@ def get_args(argv):
     mix = False
     press = False
     single = False
+    grid = False
 
     for arg in argv:
 
@@ -138,6 +139,11 @@ def get_args(argv):
                 single = True
                 IsFound = 1
 
+            m = re.match(r'-grid',arg)
+            if m:
+                grid = True
+                IsFound = 1
+
             if IsFound==0 and not(arg==argv[0]):
                 filelist.append(arg)
 
@@ -155,6 +161,7 @@ def get_args(argv):
         'mix':mix,
         'press':press,
         'single':single,
+        'grid':grid,
     }
 
     return args
@@ -203,6 +210,7 @@ if (args["help"]):
     print('   -mix : plot mixing ratio of all neutral species')
     print('   -press : use pressure as vertical coordinate')
     print('   -single : force one plot per file even with a single variable')
+    print('   -grid : overlay a grid on the plots')
     print('   At end, list the files you want to plot')
 
     iVar = 0
@@ -377,6 +385,8 @@ if not args['average']:
             else:
                 ax.set_xlabel('Density')
             ax.set_ylabel('Pressure (Pa)' if args['press'] else 'Altitude (km)')
+            if args['grid']:
+                ax.grid(True)
             if args['mix'] and n2_idx is not None and ar_idx is not None:
                 n2_data = data[n2_idx][0,0,iminalt:]
                 ar_data = data[ar_idx][0,0,iminalt:]
@@ -726,6 +736,8 @@ if args['press']:
     pp.ylabel('Pressure (Pa)')
 else:
     pp.ylabel('Altitude (km)')
+if args['grid']:
+    pp.grid(True)
 
 LT, SZA = compute_solar_geom(data['time'], data[0][0,0,0], data[1][0,0,0])
 pp.title(f"{data['time'].strftime('%Y%m%d-%H:%M UT')}\n{LT:.1f} LT, {SZA:.1f} SZA")

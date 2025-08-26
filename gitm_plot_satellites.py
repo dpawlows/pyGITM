@@ -70,6 +70,7 @@ def get_args(argv):
     reactions = False
     mix = False
     press = False
+    grid = False
 
     for arg in argv:
 
@@ -131,6 +132,11 @@ def get_args(argv):
                 press = True
                 IsFound = 1
 
+            m = re.match(r'-grid',arg)
+            if m:
+                grid = True
+                IsFound = 1
+
             if IsFound==0 and not(arg==argv[0]):
                 filelist.append(arg)
 
@@ -147,6 +153,7 @@ def get_args(argv):
         'reactions':reactions,
         'mix':mix,
         'press':press,
+        'grid':grid,
     }
 
     return args
@@ -194,6 +201,7 @@ if (args["help"]):
     print('   -reactions: you are plotting reactions and you might want to plot the associated text')
     print('   -mix : plot mixing ratio of all neutral species')
     print('   -press : use pressure as vertical coordinate')
+    print('   -grid : overlay grid on the plot')
     print('   At end, list the files you want to plot')
 
     iVar = 0
@@ -632,6 +640,8 @@ if args['press']:
     pp.ylabel('Pressure (Pa)')
 else:
     pp.ylabel('Altitude (km)')
+if args['grid']:
+    ax.grid(True)
 
 LT, SZA = compute_solar_geom(data['time'], data[0][0,0,0], data[1][0,0,0])
 pp.title(f"{data['time'].strftime('%Y%m%d-%H:%M UT')}\n{LT:.1f} LT, {SZA:.1f} SZA")

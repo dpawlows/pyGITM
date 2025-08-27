@@ -6,7 +6,7 @@ import sys
 import numpy as np
 import re
 import os
-import datetime
+import datetime as dt
 from matplotlib import pyplot as pp
 from gitm_routines import *
 import pandas as pd
@@ -628,7 +628,7 @@ if sats:
             def _file_time(fname):
                 m = re.search(r'_(\d{8}T\d{6})_', os.path.basename(fname))
                 if m:
-                    return datetime.datetime.strptime(m.group(1), '%Y%m%dT%H%M%S')
+                    return dt.datetime.strptime(m.group(1), '%Y%m%dT%H%M%S')
                 return None
             file_times = [_file_time(f) for f in files]
             if any(t is not None for t in file_times):

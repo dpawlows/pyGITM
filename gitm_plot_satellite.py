@@ -749,7 +749,7 @@ if args['oplot'] and len(alldata) > 1:
 
     file_handles = [pp.Line2D([], [], color='k', linestyle=file_linestyles[i])
                     for i in range(len(alldata))]
-    file_labels = [os.path.basename(f) for f in filelist]
+    file_labels = [os.path.splitext(os.path.basename(f))[0] for f in filelist]
     file_legend = ax.legend(file_handles, file_labels, loc='upper left',
                             frameon=False)
 

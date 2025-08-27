@@ -592,8 +592,8 @@ def testave():
     vars = plot_vars
 
 if sats:
-    # satsdir = '/home/dpawlows/Docs/Research/MGITM-MAVENcomparison2023/DD2/NGIMS/'
-    satsdir = '/media/dpawlows/Mars/NGIMS/2017/'
+    satsdir = '/home/dpawlows/Docs/Research/MGITM-MAVENcomparison2023/DD2/NGIMS/'
+    #satsdir = '/media/dpawlows/Mars/NGIMS/2015 /'
     start = alldata[0]['time'].strftime('%Y%m%d')
     end = alldata[-1]['time'].strftime('%Y%m%d')
 

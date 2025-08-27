@@ -722,6 +722,10 @@ if homopause_alt is not None:
             ha='right', va='top')
 
 if args['oplot'] and len(alldata) > 1:
+    # Shrink the plot area to make room for the variable legend
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.75, box.height])
+
     file_handles = [pp.Line2D([], [], color='k', linestyle=file_linestyles[i])
                     for i in range(len(alldata))]
     file_labels = [os.path.basename(f) for f in filelist]
@@ -739,8 +743,8 @@ if args['oplot'] and len(alldata) > 1:
         var_labels.append(label)
 
     ax.add_artist(file_legend)
-    pp.legend(var_handles, var_labels, loc='center left',
-              bbox_to_anchor=(1.04, 0.5), frameon=False)
+    ax.legend(var_handles, var_labels, loc='center left',
+              bbox_to_anchor=(1, 0.5), frameon=False)
 elif ndirs > 1:
     handles = [pp.Line2D([], [], linestyle=value) for value in dirmap.values()]
     pp.legend(handles, dirmap.keys(),loc='upper right',frameon=False)

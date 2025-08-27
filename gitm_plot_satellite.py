@@ -6,6 +6,7 @@ import sys
 import numpy as np
 import re
 import os
+import datetime
 from matplotlib import pyplot as pp
 from gitm_routines import *
 import pandas as pd
@@ -622,21 +623,32 @@ if sats:
         files = ngims.getfiles(start,end,dentype=dentype,version=version,dir=satsdir)
         if len(files) == 0:
             print('No NGIMS files found!')
+        else:
+            model_time = alldata[0]['time']
+            def _file_time(fname):
+                m = re.search(r'_(\d{8}T\d{6})_', os.path.basename(fname))
+                if m:
+                    return datetime.datetime.strptime(m.group(1), '%Y%m%dT%H%M%S')
+                return None
+            file_times = [_file_time(f) for f in files]
+            if any(t is not None for t in file_times):
+                diffs = [abs((t - model_time).total_seconds()) if t else float('inf') for t in file_times]
+                files = [files[int(np.argmin(diffs))]]
 
         if not args['average']:
 
             for fi in files:
-                data = ngims.readNGIMS(fi)
-                data = data[(data["alt"] < 350)]
-                data = data[data["quality"].isin(qualityFlag)]
+                satdata = ngims.readNGIMS(fi)
+                satdata = satdata[(satdata["alt"] < 350)]
+                satdata = satdata[satdata["quality"].isin(qualityFlag)]
 
                 for pvar in varlist:
                     searchVar = int(pvar) if dentype == 'ion' else pvar
-                    newdf = data[(data[speciesColumn] == searchVar)]
+                    newdf = satdata[(satdata[speciesColumn] == searchVar)]
                     if newdf.shape[0] == 0:
                         print("Error in ngims_plot_profile: Empty data frame from {}".format(fi))
                         exit(1)
-                        
+
                     if inboundonly:
                         minalt = newdf['alt'].idxmin()
                         indices = list(newdf.index.values)
@@ -663,15 +675,15 @@ if sats:
         else:
             orbitavedensity = np.zeros((len(files),nbins-1))
             for pvar in varlist:
-                ifile = 0 
+                ifile = 0
 
                 for fi in files:
-                
-                
-                    data = ngims.readNGIMS(fi)
-                    data = data[(data["alt"] < 350)]
-                    data = data[data["quality"].isin(qualityFlag)]
-                    newdf = data[(data[speciesColumn] == int(pvar))]
+
+
+                    satdata = ngims.readNGIMS(fi)
+                    satdata = satdata[(satdata["alt"] < 350)]
+                    satdata = satdata[satdata["quality"].isin(qualityFlag)]
+                    newdf = satdata[(satdata[speciesColumn] == int(pvar))]
 
                     if inboundonly:
                             minalt = newdf['alt'].idxmin()
@@ -709,16 +721,16 @@ if sats:
 
         if not args['average']:
             for f in files:
-                data = rose.readRoseTab(f)
-                newdf = data[(data['altitude'] >= minalt) & (data['altitude'] <= maxalt)]
+                satdata = rose.readRoseTab(f)
+                newdf = satdata[(satdata['altitude'] >= minalt) & (satdata['altitude'] <= maxalt)]
                 pp.plot(newdf['nelec'],newdf['altitude'],'.',markersize = 5,color='dimgrey')
-        
+
         else:
             orbitavedensity = np.zeros((len(files),nbins-1))
             ifile = 0
             for f in files:
-                data = rose.readRoseTab(f)
-                newdf = data[(data['altitude'] >= minalt) & (data['altitude'] <= maxalt)]
+                satdata = rose.readRoseTab(f)
+                newdf = satdata[(satdata['altitude'] >= minalt) & (satdata['altitude'] <= maxalt)]
 
                 for ibin in range(len(altbins)-1):
                     lower = altbins[ibin] 

@@ -2,9 +2,10 @@
 
 ### Plot a GITM satellite file
 
-import sys 
-import numpy as np 
-import re 
+import sys
+import numpy as np
+import re
+import os
 from matplotlib import pyplot as pp
 from gitm_routines import *
 import pandas as pd
@@ -73,6 +74,7 @@ def get_args(argv):
     press = False
     single = False
     grid = False
+    oplot = False
 
     for arg in argv:
 
@@ -144,6 +146,11 @@ def get_args(argv):
                 grid = True
                 IsFound = 1
 
+            m = re.match(r'-oplot',arg)
+            if m:
+                oplot = True
+                IsFound = 1
+
             if IsFound==0 and not(arg==argv[0]):
                 filelist.append(arg)
 
@@ -162,6 +169,7 @@ def get_args(argv):
         'press':press,
         'single':single,
         'grid':grid,
+        'oplot':oplot,
     }
 
     return args
@@ -211,6 +219,7 @@ if (args["help"]):
     print('   -press : use pressure as vertical coordinate')
     print('   -single : force one plot per file even with a single variable')
     print('   -grid : overlay a grid on the plots')
+    print('   -oplot : overplot multiple files and variables on a single figure')
     print('   At end, list the files you want to plot')
 
     iVar = 0
@@ -315,6 +324,7 @@ for fname, data, directory, pressure in results:
 df = pd.DataFrame(alldata)
 #plot options depending on the dataset
 linestyles = ['-','--','-.',':']
+file_linestyles = []
 ndirs = 0
 if directories:
     dirmap = {}
@@ -336,7 +346,7 @@ else:
     yarrays = [alts for _ in alldata]
 
 if not args['average']:
-    if len(alldata) > 1 and (len(plot_vars) > 1 or args['single']):
+    if len(alldata) > 1 and (len(plot_vars) > 1 or args['single']) and not args['oplot']:
         for ifile, data in enumerate(alldata):
             fig, ax = pp.subplots()
             minv = np.inf
@@ -415,14 +425,17 @@ if not args['average']:
             pp.savefig(outfile)
             pp.close(fig)
         sys.exit(0)
-    for ifile in range(len(alldata)):
-        ivar = 0
+    var_colors = {pvar: colors[i % len(colors)] for i, pvar in enumerate(plot_vars)}
+    file_linestyles = [linestyles[i % len(linestyles)] for i in range(len(alldata))]
+
+    for ifile, data in enumerate(alldata):
+        linestyle = file_linestyles[ifile]
         if args['mix']:
-            total = np.zeros_like(alldata[ifile][plot_vars[0]][0,0,iminalt:])
+            total = np.zeros_like(data[plot_vars[0]][0,0,iminalt:])
             for idx in plot_vars:
-                total += alldata[ifile][idx][0,0,iminalt:]
+                total += data[idx][0,0,iminalt:]
             for pvar in plot_vars:
-                pdata = alldata[ifile][pvar][0,0,iminalt:] / total
+                pdata = data[pvar][0,0,iminalt:] / total
                 if args['alog']:
                     pdata = np.where(pdata > 0, np.log10(pdata), 0)
                 if min(pdata) < minv:
@@ -430,16 +443,13 @@ if not args['average']:
                 if max(pdata) > maxv:
                     maxv = max(pdata)
 
-                if ndirs > 1:
-                    linestyle = dirmap[directories[ifile]]
-                line, = pp.plot(pdata,yarrays[ifile][iminalt:],color=colors[ivar],ls=linestyle)
-                if ndirs <= 1:
+                line, = pp.plot(pdata, yarrays[ifile][iminalt:], color=var_colors[pvar], ls=linestyle)
+                if ifile == 0 and ndirs <= 1:
                     label = name_dict.get(header["vars"][pvar], header["vars"][pvar])
                     line.set_label(label)
-                ivar +=1
         else:
             for pvar in plot_vars:
-                pdata = alldata[ifile][pvar][0,0,iminalt:]
+                pdata = data[pvar][0,0,iminalt:]
                 if args['alog']:
                     pdata= np.where(pdata > 0, np.log10(pdata), 0)
                 if min(pdata) < minv:
@@ -447,10 +457,8 @@ if not args['average']:
                 if max(pdata) > maxv:
                     maxv = max(pdata)
 
-                if ndirs > 1:
-                    linestyle = dirmap[directories[ifile]]
-                line, = pp.plot(pdata,yarrays[ifile][iminalt:],color=colors[ivar],ls=linestyle)
-                if ndirs <= 1:
+                line, = pp.plot(pdata, yarrays[ifile][iminalt:], color=var_colors[pvar], ls=linestyle)
+                if ifile == 0 and ndirs <= 1:
                     if args['reactions']:
                         line.set_label(marsreactions[int(header['vars'][pvar])])
                     else:
@@ -458,7 +466,6 @@ if not args['average']:
                             line.set_label(name_dict[header["vars"][pvar]])
                         except:
                             line.set_label(header["vars"][pvar])
-                ivar +=1
     if ndirs <= 1 and sats:
         line.set_label('MGITM')
 
@@ -714,8 +721,14 @@ if homopause_alt is not None:
     ax.text(0.95,0.95,f"homopause: {homopause_alt:.1f} km", transform=ax.transAxes,
             ha='right', va='top')
 
-if ndirs > 1:
-
+if args['oplot'] and len(alldata) > 1:
+    handles = [pp.Line2D([], [], color='k', linestyle=file_linestyles[i])
+               for i in range(len(alldata))]
+    labels = [os.path.basename(f) for f in filelist]
+    var_legend = ax.legend(loc='upper left', frameon=False)
+    ax.add_artist(var_legend)
+    pp.legend(handles, labels, loc='upper right', frameon=False)
+elif ndirs > 1:
     handles = [pp.Line2D([], [], linestyle=value) for value in dirmap.values()]
     pp.legend(handles, dirmap.keys(),loc='upper right',frameon=False)
 else:

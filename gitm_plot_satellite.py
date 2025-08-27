@@ -722,12 +722,25 @@ if homopause_alt is not None:
             ha='right', va='top')
 
 if args['oplot'] and len(alldata) > 1:
-    handles = [pp.Line2D([], [], color='k', linestyle=file_linestyles[i])
-               for i in range(len(alldata))]
-    labels = [os.path.basename(f) for f in filelist]
-    var_legend = ax.legend(loc='upper left', frameon=False)
-    ax.add_artist(var_legend)
-    pp.legend(handles, labels, loc='upper right', frameon=False)
+    file_handles = [pp.Line2D([], [], color='k', linestyle=file_linestyles[i])
+                    for i in range(len(alldata))]
+    file_labels = [os.path.basename(f) for f in filelist]
+    file_legend = ax.legend(file_handles, file_labels, loc='upper left',
+                            frameon=False)
+
+    var_handles = []
+    var_labels = []
+    for pvar in plot_vars:
+        if args['reactions']:
+            label = marsreactions[int(header['vars'][pvar])]
+        else:
+            label = name_dict.get(header['vars'][pvar], header['vars'][pvar])
+        var_handles.append(pp.Line2D([], [], color=var_colors[pvar]))
+        var_labels.append(label)
+
+    ax.add_artist(file_legend)
+    pp.legend(var_handles, var_labels, loc='center left',
+              bbox_to_anchor=(1.04, 0.5), frameon=False)
 elif ndirs > 1:
     handles = [pp.Line2D([], [], linestyle=value) for value in dirmap.values()]
     pp.legend(handles, dirmap.keys(),loc='upper right',frameon=False)

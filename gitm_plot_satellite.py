@@ -14,9 +14,9 @@ import rose
 import marstiming as mt
 from concurrent.futures import ThreadPoolExecutor
 
-minalt = 0
 minaltplot = 50
 maxaltplot = 250
+minalt = minaltplot
 def find_homopause(n2, ar, alts):
     ratio = n2 / ar
     idx = np.where(ratio <= ratio[0]*1.5)[0]
@@ -64,8 +64,10 @@ def get_args(argv):
     var = -1
     help = False
     alog = False
-    min = None 
-    max = None 
+    min = None
+    max = None
+    minalt = None
+    maxalt = None
     average = False
     stddev = False
     sats = None
@@ -94,6 +96,16 @@ def get_args(argv):
             m = re.match(r'-max=(.*)',arg)
             if m:
                 max = float(m.group(1))
+                IsFound = 1
+
+            m = re.match(r'-minalt=(.*)',arg)
+            if m:
+                minalt = float(m.group(1))
+                IsFound = 1
+
+            m = re.match(r'-maxalt=(.*)',arg)
+            if m:
+                maxalt = float(m.group(1))
                 IsFound = 1
             
             m = re.match(r'-h',arg)
@@ -161,6 +173,8 @@ def get_args(argv):
         'alog':alog,
         'min':min,
         'max':max,
+        'minalt':minalt,
+        'maxalt':maxalt,
         'average':average,
         'stddev':stddev,
         'sats':sats,
@@ -176,6 +190,11 @@ def get_args(argv):
 
 plotmaxden = False
 args = get_args(sys.argv)
+if args['minalt'] is not None:
+    minaltplot = args['minalt']
+    minalt = args['minalt']
+if args['maxalt'] is not None:
+    maxaltplot = args['maxalt']
 sats = args['sats']
 currentsats = ['ngims','rose']
 if sats and not sats in currentsats:
@@ -210,6 +229,8 @@ if (args["help"]):
     print('   -alog : plot the log of the variable')
     print('   -min=min: minimum value to plot')
     print('   -max=max: maximum value to plot')
+    print('   -minalt=alt: minimum altitude (km) to plot')
+    print('   -maxalt=alt: maximum altitude (km) to plot')
     print('   -average: plot orbit averages')
     print('   -stddev: if using average, also plot stddev')
     print('   -sats=sats: overplot sat files. Current sat options')
@@ -577,8 +598,8 @@ if sats:
     end = alldata[-1]['time'].strftime('%Y%m%d')
 
     averageAltBin = 3.5 #km
-    minalt = 100
-    maxalt = 302
+    minalt = minaltplot
+    maxalt = maxaltplot
     altbins = np.arange(minalt,maxalt,averageAltBin)
     nbins = len(altbins)
     totaldata = np.zeros(nbins-1)

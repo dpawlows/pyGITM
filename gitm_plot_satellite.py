@@ -642,7 +642,6 @@ if sats:
                         indices = list(newdf.index.values)
                         imin = indices.index(minalt)+1
                         newdf = newdf.loc[indices[0:imin]] #update the df with only inbound data
-                    breakpoint()
                     if args['alog']:
                         density = np.log10(newdf.loc[newdf["alt"] < maxalt,"abundance"]*1e6)
                     else:
@@ -750,7 +749,7 @@ if args['oplot'] and len(alldata) > 1:
     file_handles = [pp.Line2D([], [], color='k', linestyle=file_linestyles[i])
                     for i in range(len(alldata))]
     file_labels = [os.path.splitext(os.path.basename(f))[0] for f in filelist]
-    file_legend = ax.legend(file_handles, file_labels, loc='upper left',
+    file_legend = ax.legend(file_handles, file_labels, loc='upper right',
                             frameon=False)
 
     var_handles = []
@@ -764,7 +763,7 @@ if args['oplot'] and len(alldata) > 1:
         var_labels.append(label)
 
     ax.add_artist(file_legend)
-    ax.legend(var_handles, var_labels, loc='center left',
+    ax.legend(var_handles, var_labels, loc='lower left',
               bbox_to_anchor=(1, 0.5), frameon=False)
 elif ndirs > 1:
     handles = [pp.Line2D([], [], linestyle=value) for value in dirmap.values()]

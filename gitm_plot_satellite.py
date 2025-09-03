@@ -307,7 +307,7 @@ else:
 
 Var = [header['vars'][i] for i in plot_vars]
 
-varmap = {30:44,29:32,28:16,31:14,32:30,33:28,34:12,4:'CO2',6:'O',
+varmap = {30:44,29:32,28:16,31:28,32:30,33:28,34:12,4:'CO2',6:'O',
 7:'N2',9:'Ar',5:'CO',
 }
 
@@ -674,7 +674,7 @@ if sats:
                         starred = '*'
                     
                     altitude = newdf.loc[newdf["alt"] < maxalt,'alt'].values
-                    line, = ax.plot(density,altitude,'.',markersize = 5,color='dimgrey')
+                    line, = ax.plot(density,altitude,'.',markersize = 5,color='dimgrey',zorder=-1)
                     # if allions:
                     #     line.set_label(varmap[pvar])
                     # else:
@@ -732,7 +732,7 @@ if sats:
             for f in files:
                 satdata = rose.readRoseTab(f)
                 newdf = satdata[(satdata['altitude'] >= minalt) & (satdata['altitude'] <= maxalt)]
-                pp.plot(newdf['nelec'],newdf['altitude'],'.',markersize = 5,color='dimgrey')
+                pp.plot(newdf['nelec'],newdf['altitude'],'.',markersize = 5,color='dimgrey',zorder=-10)
 
         else:
             orbitavedensity = np.zeros((len(files),nbins-1))
@@ -832,3 +832,4 @@ outfile = f"{prefix}_var{svar}_{data['time'].strftime('%y%m%d_%H%M%S')}.{ext}"
 print(f"Writing to file: {outfile}")
 pp.savefig(outfile)
 # breakpoint()
+

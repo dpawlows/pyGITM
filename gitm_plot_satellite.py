@@ -78,6 +78,7 @@ def get_args(argv):
     single = False
     grid = False
     oplot = False
+    ps = False
 
     for arg in argv:
 
@@ -164,6 +165,11 @@ def get_args(argv):
                 oplot = True
                 IsFound = 1
 
+            m = re.match(r'-ps',arg)
+            if m:
+                ps = True
+                IsFound = 1
+
             if IsFound==0 and not(arg==argv[0]):
                 filelist.append(arg)
 
@@ -185,6 +191,7 @@ def get_args(argv):
         'single':single,
         'grid':grid,
         'oplot':oplot,
+        'ps':ps,
     }
 
     return args
@@ -242,6 +249,7 @@ if (args["help"]):
     print('   -single : force one plot per file even with a single variable')
     print('   -grid : overlay a grid on the plots')
     print('   -oplot : overplot multiple files and variables on a single figure')
+    print('   -ps : save plot as a PostScript file instead of PNG')
     print('   At end, list the files you want to plot')
 
     iVar = 0
@@ -442,7 +450,8 @@ if not args['average']:
             else:
                 svar = 'novar'
             prefix = 'presssatellite' if args['press'] else 'satellite'
-            outfile = f"{prefix}_var{svar}_{data['time'].strftime('%y%m%d_%H%M%S')}.png"
+            ext = 'ps' if args['ps'] else 'png'
+            outfile = f"{prefix}_var{svar}_{data['time'].strftime('%y%m%d_%H%M%S')}.{ext}"
             print(f"Writing to file: {outfile}")
             pp.savefig(outfile)
             pp.close(fig)
@@ -818,7 +827,8 @@ elif var_list:
 else:
     svar = 'novar'
 prefix = 'presssatellite' if args['press'] else 'satellite'
-outfile = f"{prefix}_var{svar}_{data['time'].strftime('%y%m%d_%H%M%S')}.png"
+ext = 'ps' if args['ps'] else 'png'
+outfile = f"{prefix}_var{svar}_{data['time'].strftime('%y%m%d_%H%M%S')}.{ext}"
 print(f"Writing to file: {outfile}")
 pp.savefig(outfile)
 # breakpoint()

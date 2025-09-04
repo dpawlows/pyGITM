@@ -55,7 +55,7 @@ def compute_solar_geom(time, lon_rad, lat_rad):
     lon = np.degrees(lon_rad)
     lat = np.degrees(lat_rad)
     msd = mt.getMarsSolarGeometry(time)
-    lt = mt.getLTfromTime(time, lon)
+    lt = mt.getLTfromTime(msd, lon)
     sza = mt.getSZAfromTime(msd, lon, lat)
     return lt, sza
 
@@ -487,7 +487,7 @@ if not args['average']:
                     minv = min(pdata)
                 if max(pdata) > maxv:
                     maxv = max(pdata)
-
+                
                 line, = pp.plot(pdata, yarrays[ifile][iminalt:], color=var_colors[pvar], ls=linestyle)
                 if ifile == 0 and ndirs <= 1:
                     if args['reactions']:

@@ -487,7 +487,6 @@ if not args['average']:
                     minv = min(pdata)
                 if max(pdata) > maxv:
                     maxv = max(pdata)
-                
                 line, = pp.plot(pdata, yarrays[ifile][iminalt:], color=var_colors[pvar], ls=linestyle)
                 if ifile == 0 and ndirs <= 1:
                     if args['reactions']:

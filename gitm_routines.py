@@ -561,3 +561,12 @@ def autoscale_axis(ax, axis='y', digits=1, base_label=None,units=None, fontsize=
         ax.set_xlabel(full_label, fontsize=fontsize, style=style)
 
     return ax
+
+marsreactions = {
+  1:'N2 -> N2+',
+  2:'CO2 -> CO2+',
+  6:'CO -> CO+',
+  7:'O2 -> O2+',
+  9:'O -> O+',
+
+}

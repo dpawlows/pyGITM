@@ -465,7 +465,9 @@ name_dict = {"Altitude":"Altitude",
                      "[N]":"[N]",
                      "[H]":"[H]",
                      "[N(2D)]":"[N(2D)]",
-                     "V!Dn!N(up,CO!D2!N)":"V$_$n(up,CO$_2$)"
+                     "V!Dn!N(up,CO!D2!N)":"V$_$n(up,CO$_2$)",
+                     "[CO!U+!N]":"[CO$^+$]",
+                     "[C!U+!N]":"[C$^+$]",
                      }
 
 def clean_varname(varname):
@@ -565,7 +567,6 @@ def autoscale_axis(ax, axis='y', digits=1, base_label=None,units=None, fontsize=
 marsreactions = {
   1:'N2 -> N2+',
   2:'CO2 -> CO2+',
-  6:'CO -> CO+',
   7:'O2 -> O2+',
   9:'O -> O+',
 

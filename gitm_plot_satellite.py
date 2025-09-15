@@ -799,7 +799,7 @@ else:
 if args['mix']:
     pp.xlabel('Mixing Ratio')
 else:
-    if args['reactions']:
+    if header['vars'][pvar].find('==>') >= -1:
         pp.xlabel('Reaction Rate (cm$^{-3}$s$^{-1}$)')
     elif header['vars'][pvar].find('ionizationfreq') > -1:
         pp.xlabel('Ionization Frequency (s$^{-1}$)')

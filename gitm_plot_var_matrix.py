@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot normalized altitude profiles for all satellite variables from index 3 onward.
+"""Plot altitude profiles for all satellite variables from index 3 onward.
 
 This script is inspired by :mod:`gitm_plot_satellite.py`, but is simplified to
 accept a single GITM satellite output file as input.  The script loads all
@@ -9,10 +9,10 @@ x-axis corresponds to the variable index, the y-axis corresponds to altitude,
 and the color encodes the value of each variable.
 
 The intent is to provide a quick-look comparison of how the different traced
-quantities vary with altitude for a single time step. Each profile is
-normalized independently so that values lie between 0 and 1, making it easier
-to compare relative altitude structure across variables with different units
-or magnitudes.
+quantities vary with altitude for a single time step. Profiles can optionally
+be normalized independently so that values lie between 0 and 1, making it
+easier to compare relative altitude structure across variables with different
+units or magnitudes.
 """
 
 import argparse
@@ -46,6 +46,12 @@ def parse_arguments() -> argparse.Namespace:
             "Filename for the generated plot. The image will be saved in PNG "
             "format. (default: gitm_var_matrix.png)"
         ),
+    )
+    parser.add_argument(
+        "-n",
+        "--normalize",
+        action="store_true",
+        help="Normalize each variable profile to the [0, 1] range before plotting.",
     )
     return parser.parse_args()
 
@@ -116,6 +122,7 @@ def plot_variable_matrix(
     variable_names: Sequence[str],
     value_matrix: np.ndarray,
     output_file: str,
+    normalized: bool,
 ) -> None:
     """Generate and save the altitude-versus-variable heatmap plot."""
 
@@ -145,7 +152,7 @@ def plot_variable_matrix(
     ax.set_xticklabels(tick_labels, rotation=90)
 
     cbar = fig.colorbar(im, ax=ax, pad=0.02)
-    cbar.set_label("Normalized Value")
+    cbar.set_label("Normalized Value" if normalized else "Value")
 
     fig.tight_layout()
     fig.savefig(output_file, dpi=150)
@@ -167,7 +174,8 @@ def main() -> None:
 
     altitude_km = extract_altitude(data)
     value_matrix = assemble_variable_matrix(data, variable_indices)
-    value_matrix = normalize_variable_matrix(value_matrix)
+    if args.normalize:
+        value_matrix = normalize_variable_matrix(value_matrix)
 
     plot_variable_matrix(
         altitude_km,
@@ -175,6 +183,7 @@ def main() -> None:
         header["vars"],
         value_matrix,
         args.output,
+        args.normalize,
     )
 
     print(f"Saved plot to {args.output}")

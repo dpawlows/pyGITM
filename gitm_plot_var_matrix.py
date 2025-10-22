@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot altitude profiles for all satellite variables from index 3 onward.
+"""Plot normalized altitude profiles for all satellite variables from index 3 onward.
 
 This script is inspired by :mod:`gitm_plot_satellite.py`, but is simplified to
 accept a single GITM satellite output file as input.  The script loads all
@@ -9,7 +9,10 @@ x-axis corresponds to the variable index, the y-axis corresponds to altitude,
 and the color encodes the value of each variable.
 
 The intent is to provide a quick-look comparison of how the different traced
-quantities vary with altitude for a single time step.
+quantities vary with altitude for a single time step. Each profile is
+normalized independently so that values lie between 0 and 1, making it easier
+to compare relative altitude structure across variables with different units
+or magnitudes.
 """
 
 import argparse
@@ -93,6 +96,20 @@ def assemble_variable_matrix(data: dict, variable_indices: Sequence[int]) -> np.
     return matrix
 
 
+def normalize_variable_matrix(value_matrix: np.ndarray) -> np.ndarray:
+    """Normalize values for each variable profile to the [0, 1] range."""
+
+    value_matrix = value_matrix.astype(float)
+    mins = value_matrix.min(axis=1, keepdims=True)
+    maxs = value_matrix.max(axis=1, keepdims=True)
+    ranges = maxs - mins
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        normalized = np.where(ranges > 0, (value_matrix - mins) / ranges, 0.0)
+
+    return normalized
+
+
 def plot_variable_matrix(
     altitude_km: np.ndarray,
     variable_indices: Sequence[int],
@@ -128,7 +145,7 @@ def plot_variable_matrix(
     ax.set_xticklabels(tick_labels, rotation=90)
 
     cbar = fig.colorbar(im, ax=ax, pad=0.02)
-    cbar.set_label("Value (units vary by variable)")
+    cbar.set_label("Normalized Value")
 
     fig.tight_layout()
     fig.savefig(output_file, dpi=150)
@@ -150,6 +167,7 @@ def main() -> None:
 
     altitude_km = extract_altitude(data)
     value_matrix = assemble_variable_matrix(data, variable_indices)
+    value_matrix = normalize_variable_matrix(value_matrix)
 
     plot_variable_matrix(
         altitude_km,

@@ -185,7 +185,6 @@ AllAlts = []
 AllSZA = []
 j = 0
 
-breakpoint()
 data = read_gitm_one_file(file, vars)
     
 [nLons, nLats, nAlts] = data[0].shape
@@ -282,7 +281,7 @@ else:
     xlabel = 'Density'
     svar = 99
     box = ax.get_position()
-    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    ax.set_position([box.x0, box.y0, box.width * 1.5, box.height])
     ax.legend(loc='lower left', bbox_to_anchor=(1, 0.5),frameon=False)
    
 # if i < len(Var)-1:
@@ -303,7 +302,7 @@ else:
     maxv = args['maxv']
 
 pp.xlim([minv,maxv])
-pp.ylim([90,250])
+pp.ylim([90,280])
 
    
 

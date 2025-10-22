@@ -10,7 +10,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib import  ticker
 from gitm_routines import *
 import sys
-from marstiming import getMTfromTime
+import marstiming as mt 
 
 
 rtod = 180.0/3.141592
@@ -342,11 +342,11 @@ for file in filelist:
             # AllData[ivar].append(temp[mask].mean(axis=0))
 
     if args['cut'] == 'lt':
-        marstime = getMTfromTime([data['time'].year,data['time'].month,data['time'].day,\
+        marstime = mt.getMarsSolarGeometry([data['time'].year,data['time'].month,data['time'].day,\
             data['time'].hour,data['time'].minute,data['time'].second])
 
         #subsolarlon is in degrees west so convert to east first
-        subsolarlon = 360 - marstime.subSolarLon
+        subsolarlon = my.subSolarLon
         ltdiff = args['lt'] - 12  #subsolar is at 12:00 LT
         plon = (subsolarlon + ltdiff*360/24) % 360
         if lineplot:
@@ -421,7 +421,6 @@ else:
     figsize = (8,6)
     
 fig, ax = plt.subplots(np.max([1,len(Var)])+extraplot, 1, sharex=True,figsize=figsize)
-
 nlevels = 30
 
 mini = args['mini']

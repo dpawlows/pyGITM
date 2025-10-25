@@ -6,13 +6,20 @@
 # 7.nCO2(#/cc) 8.nO(#/cc) 9.nCO2+(#/cc) 10.nO+(#/cc) 11.nO2+(#/cc) 12.N2+(#/cc) 13.ne(m/s)
 #
 
-#Usage: gitm_bin_to_ascii.py filename(s)
+"""Convert GITM output to ASCII for use with M-AMPS.
 
-from glob import glob
+This script converts ion-related variables and now supports processing
+multiple files in parallel using a ``ProcessPoolExecutor``.
+"""
+
 import sys
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from tqdm import tqdm
 from gitm_routines import *
 
 rtod = 180.0/3.141592
+
 
 def get_args(argv):
 
@@ -28,15 +35,7 @@ def get_args(argv):
     return args
 
 
-newargs = get_args(sys.argv)
-
-filelist = newargs['filelist']
-vars = [0,1,2,15,32,33,4,6,28,26,27,29,31]
-nFiles = len(filelist)
-i = 0
-
-for file in filelist:
-
+def process_file(file, vars):
     data = read_gitm_one_file(file, vars)
     pos = file.rfind('.bin')
     tstamp = file[pos-13:pos]
@@ -52,39 +51,55 @@ for file in filelist:
     date = year+'-'+month+'-'+day
     time = hour+':'+minute+":"+second
 
-    if i == 0:
-        nLons = data['nLons']
-        nLats = data['nLats']
-        nAlts = data['nAlts']
+    nLons = data['nLons']
+    nLats = data['nLats']
+    nAlts = data['nAlts']
 
-    Alts = data[2][0][0]/1000.0;
-    Lons = data[0][:,0,0]*rtod;
-    Lats = data[1][0,:,0]*rtod;
-    f = open(output,'w')
-    f.write("#MGITM Results on "+date+" at "+time+" UT."+"\n")
-    f.write("#Each column contains the following variable at the given longitude, latitude, and altitude"+"\n")
-    f.write("#Number of Longitude points: "+str(nLons)+"\n")
-    f.write("#Number of Latitude points: "+str(nLats)+"\n")
-    f.write("#Number of Altitude points: "+str(nAlts)+"\n")
-    f.write("#Units-Densities: #/m3, temperatures: K, wind velocitiy: m/s."+"\n")
-    f.write("#1.Longitude(degree) 2.Latitude(degree) 3.Altitude(km) 4.Tn(K) 5.Te(K) 6.Ti(K) 7.nCO2(#/m3)\
-    8.nO(#/m3) 9.nCO2+(#/m3) 10.nO+(#/m3) 11.nO2+(#/m3) 12.nN2+(#/m3) 13.ne(m/s)\n")
-# 1.Longitude(degree) 2.Latitude(degree) 3.Altitude(km) 4.Tn(K) 5.Te(K) 6.Ti(K)
-# 7.nCO2(#/cc) 8.nO(#/cc) 9.nCO2+(#/cc) 10.nO+(#/cc) 11.nO2+(#/cc) 12.N2+(#/cc) 13.ne(m/s)
-    f.write("#START\n")
+    Alts = data[2][0][0]/1000.0
+    Lons = data[0][:,0,0]*rtod
+    Lats = data[1][0,:,0]*rtod
+    with open(output,'w') as f:
+        f.write("#MGITM Results on "+date+" at "+time+" UT."+"\n")
+        f.write("#Each column contains the following variable at the given longitude, latitude, and altitude"+"\n")
+        f.write("#Number of Longitude points: "+str(nLons)+"\n")
+        f.write("#Number of Latitude points: "+str(nLats)+"\n")
+        f.write("#Number of Altitude points: "+str(nAlts)+"\n")
+        f.write("#Units-Densities: #/m3, temperatures: K, wind velocitiy: m/s."+"\n")
+        f.write("#1.Longitude(degree) 2.Latitude(degree) 3.Altitude(km) 4.Tn(K) 5.Te(K) 6.Ti(K) 7.nCO2(#/m3)"
+                "    8.nO(#/m3) 9.nCO2+(#/m3) 10.nO+(#/m3) 11.nO2+(#/m3) 12.nN2+(#/m3) 13.ne(m/s)\n")
+        f.write("#START\n")
 
-    ialtstart = np.where(Alts > 80)[0][0]
+        ialtstart = np.where(Alts > 80)[0][0]
 
-    #Begin 3D loop over data cube
+        #Begin 3D loop over data cube
+        for ialt in range(ialtstart,nAlts-2):
+            for ilat in range(2,nLats-2):
+                for ilon in range(2,nLons-2):
+                    thisdata = [Lons[ilon],Lats[ilat],Alts[ialt]]
+                    for var in vars[3:]:
+                        thisdata.append(data[var][ilon,ilat,ialt])
 
-    for ialt in range(ialtstart,nAlts-2):
-        for ilat in range(2,nLats-2):
-            for ilon in range(2,nLons-2):
-                thisdata = [Lons[ilon],Lats[ilat],Alts[ialt]]
-                for var in vars[3:]:
-                    thisdata.append(data[var][ilon,ilat,ialt])
+                    f.write("    ".join('{:g}'.format(ele) for ele in thisdata)+"\n")
 
-                f.write("    ".join('{:g}'.format(ele) for ele in thisdata)+"\n")
 
-    i += 1
-    f.close()
+def main():
+    newargs = get_args(sys.argv)
+    filelist = newargs['filelist']
+    vars = [0,1,2,15,32,33,4,6,28,26,27,29,31]
+
+    if len(filelist) == 0:
+        print('Usage: gitm_bin_to_ascii.py filename(s)')
+        return
+
+    max_workers = min(multiprocessing.cpu_count(), len(filelist))
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(process_file, file, vars): file for file in filelist}
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Converting", unit="file"):
+            try:
+                future.result()
+            except Exception as e:
+                print(f"Error processing {futures[future]}: {e}")
+
+
+if __name__ == '__main__':
+    main()

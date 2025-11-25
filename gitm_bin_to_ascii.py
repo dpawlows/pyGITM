@@ -11,6 +11,9 @@
 from glob import glob
 import sys
 from gitm_routines import *
+import re 
+import marstiming
+import datetime 
 
 rtod = 180.0/3.141592
 
@@ -18,25 +21,70 @@ def get_args(argv):
 
     filelist = []
     IsFound = 0
+    var = -1
+    help = 0
+    ghost = -1
 
     for arg in argv:
+        m = re.match(r'-var=(.*)',arg)
+        if m:
+            var = m.group(1)
+            IsFound = 1
+        m = re.match(r'-h',arg)
+        if m:
+            help = 1
+            IsFound = 1
+
+        m = re.match(r'-g',arg)
+        if m:
+            ghost = 1
+            IsFound = 1
+
         if IsFound==0 and not(arg==argv[0]):
             filelist.append(arg)
 
         args = {'filelist':filelist,
+                 'var':var,
+                 'help':help,
+                 'ghost':ghost,
                 }
     return args
 
 
-newargs = get_args(sys.argv)
+args = get_args(sys.argv)
+filelist = args['filelist']
+header = read_gitm_header(filelist)
+if args['var'] == -1:
+    args['help'] = True
 
-filelist = newargs['filelist']
-vars = [0,1,2,15,34,33,4,6,7,5,9, 28, 32, 16, 17, 18]
+if (args["help"]):
+
+    print('Usage : ')
+    print('gitm_bin_to_ascii.py -var=n1[,n2,n3]')
+    print('                     -help [*.bin or a file]')
+    print('   -help : print this message')
+    print('   -var=num1,num2,... : number(s) is variable to plot')
+    print('   -g: include ghost cells')
+    iVar = 0
+    for var in header["vars"]:
+        print(iVar,var)
+        iVar=iVar+1
+
+    exit()
+
+
+vars = [0,1,2]
+myvars = [int(v) for v in args["var"].split(',')]
+vars.extend(myvars)
 nFiles = len(filelist)
 i = 0
 
-for file in filelist:
+ghost = False 
+if args['ghost'] > 0:
+    ghost = True
 
+for file in filelist:
+    print(f"Processing {file}...")
     data = read_gitm_one_file(file, vars)
     pos = file.rfind('.bin')
     tstamp = file[pos-13:pos]
@@ -53,32 +101,52 @@ for file in filelist:
     time = hour+':'+minute+":"+second
 
     if i == 0:
-        nLons = data['nLons']
-        nLats = data['nLats']
-        nAlts = data['nAlts']
+        Alts = data[2][0][0]/1000.0;
+        Lons = data[0][:,0,0]*rtod;
+        Lats = data[1][0,:,0]*rtod;
+        nLons = len(Lons)
+        nLats = len(Lats)
+        nAlts = len(Alts)
 
-    Alts = data[2][0][0]/1000.0;
-    Lons = data[0][:,0,0]*rtod;
-    Lats = data[1][0,:,0]*rtod;
+        ilonstart = 0
+        ilonend = len(Lons)
+        ilatstart = 0
+        ilatend = len(Lats)
+        ialtstart = 0
+        ialtend = len(Alts)
+    
+        ialtstart = 0
+        
+        if not ghost:
+            ialtstart = np.where(Alts > 98)[0][0] 
+            ialtend -= 2 
+            ilonstart += 2
+            ilonend -= 2
+            ilatstart += 2
+            ilatend -= 2    
+     
     f = open(output,'w')
-    f.write("#MGITM Results on "+date+" at "+time+" UT."+"\n")
-    f.write("#Each column contains the following variable at the given longitude, latitude, and altitude"+"\n")
-    f.write("#Number of Longitude points: "+str(nLons)+"\n")
-    f.write("#Number of Latitude points: "+str(nLats)+"\n")
-    f.write("#Number of Altitude points: "+str(nAlts)+"\n")
-    f.write("#Units-Densities: #/m3, temperatures: K, wind velocitiy: m/s."+"\n")
-    f.write("#1.Longitude(degree) 2.Latitude(degree) 3.Altitude(km) 4.Tn(K) 5.Ti(K) 6.Te(K) 7.nCO2(#/m3)\
-    8.nO(#/m3) 9.nN2(#/m3) 10.nCO(#/m3) 11.nO2P(#/m3) 12.nAr(#/m3) 12.ne(#/m3) 13.UN(m/s) 14.VN(m/s), 15.WN(m/s)\n")
+    MSG = marstiming.getMarsSolarGeometry(datetime.datetime(int(year),int(month),int(day),int(hour),
+    int(minute),int(second)))
 
+    f.write("#MGITM Results on "+date+" at "+time+" UT."+ "\n")
+    f.write("# LS:"+str(int(MSG.ls)))
+    f.write("#Each column contains the following variable at the given longitude, latitude, and altitude"+"\n")
+    f.write("#Number of Longitude points: "+str(ilonend-ilonstart)+"\n")
+    f.write("#Number of Latitude points: "+str(ilatend-ilatstart)+"\n")
+    f.write("#Number of Altitude points: "+str(ialtend-ialtstart)+"\n")
+    f.write("#Units-Densities: #/m3, temperatures: K, wind velocitiy: m/s."+"\n")
+    f.write("#")
+    for i,v in enumerate(vars):
+        f.write(f"{i+1}.{clean_varname(name_dict[header['vars'][v]])} ")
+    f.write("\n")
     f.write("#START\n")
 
-    ialtstart = np.where(Alts > 98)[0][0]
 
     #Begin 3D loop over data cube
-
-    for ialt in range(ialtstart,nAlts-2):
-        for ilat in range(2,nLats-2):
-            for ilon in range(2,nLons-2):
+    for ialt in range(ialtstart,ialtend):
+        for ilat in range(ilatstart,ilatend):
+            for ilon in range(ilonstart,ilonend):
                 thisdata = [Lons[ilon],Lats[ilat],Alts[ialt]]
                 for var in vars[3:]:
                     thisdata.append(data[var][ilon,ilat,ialt])

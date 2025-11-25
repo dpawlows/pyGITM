@@ -468,6 +468,7 @@ name_dict = {"Altitude":"Altitude",
                      "V!Dn!N(up,CO!D2!N)":"V$_$n(up,CO$_2$)",
                      "[CO!U+!N]":"[CO$^+$]",
                      "[C!U+!N]":"[C$^+$]",
+                     "[C]":"[C]",
                      }
 
 def clean_varname(varname):
@@ -480,6 +481,7 @@ def clean_varname(varname):
                              .replace('!N','')
                              .replace('!U','')
                              .replace(" ","")
+                             .replace("^","")
     )
 
     return cleanvar

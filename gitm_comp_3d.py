@@ -44,6 +44,8 @@ def get_args(argv):
     help = 0
     winds = 0
     diff = 0
+    min_val = None
+    max_val = None
 
     for arg in argv:
 
@@ -102,6 +104,16 @@ def get_args(argv):
                 winds = 1
                 IsFound = 1
 
+            m = re.match(r'-min=(.*)',arg)
+            if m:
+                min_val = float(m.group(1))
+                IsFound = 1
+
+            m = re.match(r'-max=(.*)',arg)
+            if m:
+                max_val = float(m.group(1))
+                IsFound = 1
+
             if IsFound==0 and not(arg==argv[0]):
                 filelist.append(arg)
 
@@ -115,7 +127,9 @@ def get_args(argv):
             'alt':alt,
             'lat':lat,
             'lon':lon,
-            'IsLog':IsLog}
+            'IsLog':IsLog,
+            'min':min_val,
+            'max':max_val}
 
     return args
 
@@ -146,6 +160,8 @@ if (args["help"]):
     print('   -lon=longitude: longitude in degrees (closest)')
     print('   -alog : plot the log of the variable')
     print('   -winds: overplot winds')
+    print('   -min=minimum : minimum value for the plot scale')
+    print('   -max=maximum : maximum value for the plot scale')
     print('   Non-KW args: files to plot. Must be two.')
 
     iVar = 0
@@ -279,6 +295,10 @@ AllData2D = np.log10(AllData2D) if (args['IsLog']) else AllData2D
 
 maxi  = np.max(AllData2D[0,2:-2,2:-2])*1.05
 mini  = np.min(AllData2D[0,2:-2,2:-2])*0.95
+if args["min"] is not None:
+    mini = args["min"]
+if args["max"] is not None:
+    maxi = args["max"]
 #mini = 0
 #maxi=4
 if maxi == 0 and mini == 0:
@@ -315,8 +335,6 @@ if (cut == 'alt'):
         else:
             miniS = np.min(AllData2D[:,2:-2,maskSouth])*0.95
 dr = (maxi-mini)/31
-mini=0
-maxi=40
 levels = np.arange(mini, maxi, dr)
 
 i = 0

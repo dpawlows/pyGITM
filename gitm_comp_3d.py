@@ -144,6 +144,8 @@ def get_args(argv):
 #-----------------------------------------------------------------------------
 
 args = get_args(sys.argv)
+breakpoint()
+
 header = read_gitm_header(args["filelist"])
 
 if (args["help"]):
@@ -176,7 +178,6 @@ nFiles = len(filelist)
 if nFiles != 2:
     print('Can only compare 2 files.')
     exit()
-
 cut = args["cut"]
 vars = [0,1,2]
 vars.append(args["var"])

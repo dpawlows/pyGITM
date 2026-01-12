@@ -144,7 +144,6 @@ def get_args(argv):
 #-----------------------------------------------------------------------------
 
 args = get_args(sys.argv)
-breakpoint()
 
 header = read_gitm_header(args["filelist"])
 
@@ -203,8 +202,8 @@ AllAlts = []
 AllTimes = []
 j = 0
 
-dataperturb =  read_gitm_one_file(filelist[0], vars)
-data = read_gitm_one_file(filelist[1], vars)
+dataperturb =  read_gitm_one_file(glob(filelist[0])[0], vars)
+data = read_gitm_one_file(glob(filelist[1])[0], vars)
 [nLons, nLats, nAlts] = data[0].shape
 Alts = data[2][0][0]/1000.0;
 Lons = data[0][:,0,0]*rtod;

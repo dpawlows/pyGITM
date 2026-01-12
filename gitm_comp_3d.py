@@ -46,6 +46,7 @@ def get_args(argv):
     diff = 0
     min_val = None
     max_val = None
+    cmap = 'plasma'
 
     for arg in argv:
 
@@ -114,6 +115,11 @@ def get_args(argv):
                 max_val = float(m.group(1))
                 IsFound = 1
 
+            m = re.match(r'-cmap=(.*)',arg)
+            if m:
+                cmap = m.group(1)
+                IsFound = 1
+
             if IsFound==0 and not(arg==argv[0]):
                 filelist.append(arg)
 
@@ -129,7 +135,8 @@ def get_args(argv):
             'lon':lon,
             'IsLog':IsLog,
             'min':min_val,
-            'max':max_val}
+            'max':max_val,
+            'cmap':cmap}
 
     return args
 
@@ -163,6 +170,7 @@ if (args["help"]):
     print('   -winds: overplot winds')
     print('   -min=minimum : minimum value for the plot scale')
     print('   -max=maximum : maximum value for the plot scale')
+    print('   -cmap=name : matplotlib colormap to use (default: plasma)')
     print('   Non-KW args: files to plot. Must be two.')
 
     iVar = 0
@@ -364,7 +372,11 @@ for time in AllTimes:
     norm = cm.colors.Normalize(vmax=mini, vmin=maxi)
     print(mini)
     # if (mini >= 0):
-    cmap = cm.plasma
+    try:
+        cmap = cm.get_cmap(args["cmap"])
+    except ValueError:
+        print("Error: invalid colormap '{}'. Use a valid matplotlib colormap name.".format(args["cmap"]))
+        exit()
     # else:
     #     cmap = cm.bwr
 

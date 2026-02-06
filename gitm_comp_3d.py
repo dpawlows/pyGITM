@@ -189,6 +189,7 @@ j = 0
 dataperturb =  read_gitm_one_file(filelist[0], vars)
 data = read_gitm_one_file(filelist[1], vars)
 [nLons, nLats, nAlts] = data[0].shape
+
 Alts = data[2][0][0]/1000.0;
 Lons = data[0][:,0,0]*rtod;
 Lats = data[1][0,:,0]*rtod;

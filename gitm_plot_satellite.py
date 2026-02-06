@@ -72,6 +72,7 @@ def get_args(argv):
     average = False
     stddev = False
     sats = None
+    satdir = '.'
     reactions = False
     mix = False
     press = False
@@ -140,6 +141,11 @@ def get_args(argv):
                 sats = m.group(1)
                 IsFound = 1
 
+            m = re.match(r'-satdir=(.*)',arg)
+            if m:
+                satdir = m.group(1)
+                IsFound = 1
+
             m = re.match(r'-mix',arg)
             if m:
                 mix = True
@@ -192,6 +198,7 @@ def get_args(argv):
         'grid':grid,
         'oplot':oplot,
         'ps':ps,
+        'satdir':'satdir',
     }
 
     return args
@@ -243,6 +250,7 @@ if (args["help"]):
     print('   -stddev: if using average, also plot stddev')
     print('   -sats=sats: overplot sat files. Current sat options')
     print('      are: ngims/rose')
+    print('   -satdir=satdir : directory to find sat files. Defaults to .')
     print('   -reactions: you are plotting reactions and you might want to plot the associated text')
     print('   -mix : plot mixing ratio of all neutral species')
     print('   -press : use pressure as vertical coordinate')
@@ -601,7 +609,7 @@ def testave():
     vars = plot_vars
 
 if sats:
-    satsdir = '/home/dpawlows/Docs/Research/MGITM-MAVENcomparison2023/DD2/NGIMS/'
+    satsdir = args['satdir']
     #satsdir = '/media/dpawlows/Mars/NGIMS/2015 /'
     start = alldata[0]['time'].strftime('%Y%m%d')
     end = alldata[-1]['time'].strftime('%Y%m%d')
@@ -617,7 +625,7 @@ if sats:
     if sats=='ngims':  
 
         speciesColumn = 'species'
-        qualityFlag = ['OV','OU']
+        qualityFlag = ['IV','IU']
         version = 'v08'
         dentype = 'csn'
         inboundonly = True 

@@ -8,14 +8,102 @@
 
 #Usage: gitm_bin_to_ascii.py filename(s)
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from glob import glob
 import sys
 from gitm_routines import *
-import re 
+import re
 import marstiming
-import datetime 
+import datetime
+
+import numpy as np
 
 rtod = 180.0/3.141592
+
+
+def _compute_index_bounds(Lons, Lats, Alts, include_ghost):
+
+    ilonstart = 0
+    ilonend = len(Lons)
+    ilatstart = 0
+    ilatend = len(Lats)
+    ialtstart = 0
+    ialtend = len(Alts)
+
+    if not include_ghost:
+        ialtstart = np.where(Alts > 98)[0][0]
+        ialtend -= 2
+        ilonstart += 2
+        ilonend -= 2
+        ilatstart += 2
+        ilatend -= 2
+
+    return (ilonstart, ilonend, ilatstart, ilatend, ialtstart, ialtend)
+
+
+def _render_progress(completed, total, bar_length=40):
+
+    filled_length = int(bar_length * completed / total) if total else 0
+    bar = "=" * filled_length + "-" * (bar_length - filled_length)
+    sys.stdout.write(f"\rProcessing files: [{bar}] {completed}/{total}")
+    sys.stdout.flush()
+    if completed == total:
+        print()
+
+
+def _process_file(file, var_indices, include_ghost, header_vars):
+
+    data = read_gitm_one_file(file, var_indices)
+    pos = file.rfind('.bin')
+    tstamp = file[pos-13:pos]
+    output = 'GITM_'+tstamp+'.dat'
+    year = tstamp[0:2]
+    month = tstamp[2:4]
+    day = tstamp[4:6]
+    hour = tstamp[7:9]
+    minute = tstamp[9:11]
+    second = tstamp[11:13]
+
+    year = '20'+year if int(year) < 40 else '19'+year
+    date = year+'-'+month+'-'+day
+    time = hour+':'+minute+":"+second
+
+    Alts = data[2][0][0]/1000.0
+    Lons = data[0][:,0,0]*rtod
+    Lats = data[1][0,:,0]*rtod
+
+    ilonstart, ilonend, ilatstart, ilatend, ialtstart, ialtend = _compute_index_bounds(
+        Lons, Lats, Alts, include_ghost
+    )
+
+    with open(output,'w') as f:
+        MSG = marstiming.getMarsSolarGeometry(datetime.datetime(int(year),int(month),int(day),int(hour),
+        int(minute),int(second)))
+
+        f.write("#MGITM Results on "+date+" at "+time+" UT."+ "\n")
+        f.write("# LS:"+str(int(MSG.ls)))
+        f.write("#Each column contains the following variable at the given longitude, latitude, and altitude"+"\n")
+        f.write("#Number of Longitude points: "+str(ilonend-ilonstart)+"\n")
+        f.write("#Number of Latitude points: "+str(ilatend-ilatstart)+"\n")
+        f.write("#Number of Altitude points: "+str(ialtend-ialtstart)+"\n")
+        f.write("#Units-Densities: #/m3, temperatures: K, wind velocitiy: m/s."+"\n")
+        f.write("#")
+        for i,v in enumerate(var_indices):
+            f.write(f"{i+1}.{clean_varname(name_dict[header_vars[v]])} ")
+        f.write("\n")
+        f.write("#START\n")
+
+        #Begin 3D loop over data cube
+        for ialt in range(ialtstart,ialtend):
+            for ilat in range(ilatstart,ilatend):
+                for ilon in range(ilonstart,ilonend):
+                    thisdata = [Lons[ilon],Lats[ilat],Alts[ialt]]
+                    for var in var_indices[3:]:
+                        thisdata.append(data[var][ilon,ilat,ialt])
+
+                    f.write("    ".join('{:g}'.format(ele) for ele in thisdata)+"\n")
+
+    return output
 
 def get_args(argv):
 
@@ -51,107 +139,56 @@ def get_args(argv):
     return args
 
 
-args = get_args(sys.argv)
-filelist = args['filelist']
-header = read_gitm_header(filelist)
-if args['var'] == -1:
-    args['help'] = True
+def main():
 
-if (args["help"]):
+    args = get_args(sys.argv)
+    filelist = args['filelist']
+    header = read_gitm_header(filelist)
+    if args['var'] == -1:
+        args['help'] = True
 
-    print('Usage : ')
-    print('gitm_bin_to_ascii.py -var=n1[,n2,n3]')
-    print('                     -help [*.bin or a file]')
-    print('   -help : print this message')
-    print('   -var=num1,num2,... : number(s) is variable to plot')
-    print('   -g: include ghost cells')
-    iVar = 0
-    for var in header["vars"]:
-        print(iVar,var)
-        iVar=iVar+1
+    if (args["help"]):
 
-    exit()
+        print('Usage : ')
+        print('gitm_bin_to_ascii.py -var=n1[,n2,n3]')
+        print('                     -help [*.bin or a file]')
+        print('   -help : print this message')
+        print('   -var=num1,num2,... : number(s) is variable to plot')
+        print('   -g: include ghost cells')
+        iVar = 0
+        for var in header["vars"]:
+            print(iVar,var)
+            iVar=iVar+1
 
-
-vars = [0,1,2]
-myvars = [int(v) for v in args["var"].split(',')]
-vars.extend(myvars)
-nFiles = len(filelist)
-i = 0
-
-ghost = False 
-if args['ghost'] > 0:
-    ghost = True
-
-for file in filelist:
-    print(f"Processing {file}...")
-    data = read_gitm_one_file(file, vars)
-    pos = file.rfind('.bin')
-    tstamp = file[pos-13:pos]
-    output = 'GITM_'+tstamp+'.dat'
-    year = tstamp[0:2]
-    month = tstamp[2:4]
-    day = tstamp[4:6]
-    hour = tstamp[7:9]
-    minute = tstamp[9:11]
-    second = tstamp[11:13]
-
-    year = '20'+year if int(year) < 40 else '19'+year
-    date = year+'-'+month+'-'+day
-    time = hour+':'+minute+":"+second
-
-    if i == 0:
-        Alts = data[2][0][0]/1000.0;
-        Lons = data[0][:,0,0]*rtod;
-        Lats = data[1][0,:,0]*rtod;
-        nLons = len(Lons)
-        nLats = len(Lats)
-        nAlts = len(Alts)
-
-        ilonstart = 0
-        ilonend = len(Lons)
-        ilatstart = 0
-        ilatend = len(Lats)
-        ialtstart = 0
-        ialtend = len(Alts)
-    
-        ialtstart = 0
-        
-        if not ghost:
-            ialtstart = np.where(Alts > 98)[0][0] 
-            ialtend -= 2 
-            ilonstart += 2
-            ilonend -= 2
-            ilatstart += 2
-            ilatend -= 2    
-     
-    f = open(output,'w')
-    MSG = marstiming.getMarsSolarGeometry(datetime.datetime(int(year),int(month),int(day),int(hour),
-    int(minute),int(second)))
-
-    f.write("#MGITM Results on "+date+" at "+time+" UT."+ "\n")
-    f.write("# LS:"+str(int(MSG.ls)))
-    f.write("#Each column contains the following variable at the given longitude, latitude, and altitude"+"\n")
-    f.write("#Number of Longitude points: "+str(ilonend-ilonstart)+"\n")
-    f.write("#Number of Latitude points: "+str(ilatend-ilatstart)+"\n")
-    f.write("#Number of Altitude points: "+str(ialtend-ialtstart)+"\n")
-    f.write("#Units-Densities: #/m3, temperatures: K, wind velocitiy: m/s."+"\n")
-    f.write("#")
-    for i,v in enumerate(vars):
-        f.write(f"{i+1}.{clean_varname(name_dict[header['vars'][v]])} ")
-    f.write("\n")
-    f.write("#START\n")
+        exit()
 
 
-    #Begin 3D loop over data cube
-    for ialt in range(ialtstart,ialtend):
-        for ilat in range(ilatstart,ilatend):
-            for ilon in range(ilonstart,ilonend):
-                thisdata = [Lons[ilon],Lats[ilat],Alts[ialt]]
-                for var in vars[3:]:
-                    thisdata.append(data[var][ilon,ilat,ialt])
+    vars = [0,1,2]
+    myvars = [int(v) for v in args["var"].split(',')]
+    vars.extend(myvars)
+    nFiles = len(filelist)
 
-                f.write("    ".join('{:g}'.format(ele) for ele in thisdata)+"\n")
+    ghost = False
+    if args['ghost'] > 0:
+        ghost = True
 
-    i += 1
-    f.close()
+    if nFiles == 0:
+        print("No files specified for conversion.")
+        exit()
+
+    with ProcessPoolExecutor() as executor:
+        futures = {
+            executor.submit(_process_file, file, vars, ghost, header['vars']): file
+            for file in filelist
+        }
+
+        completed = 0
+        _render_progress(completed, nFiles)
+        for future in as_completed(futures):
+            future.result()
+            completed += 1
+            _render_progress(completed, nFiles)
+
+
+if __name__ == "__main__":
+    main()

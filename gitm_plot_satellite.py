@@ -34,31 +34,6 @@ def find_homopause(n2, ar, alts):
     return alts[i_last]
 
 
-def compute_solar_geom(time, lon_rad, lat_rad):
-    """Return local time and solar zenith angle for a given time and location.
-
-    Parameters
-    ----------
-    time : datetime
-        Observation time.
-    lon_rad : float
-        Longitude in radians.
-    lat_rad : float
-        Latitude in radians.
-
-    Returns
-    -------
-    tuple of floats
-        Local time (hours) and solar zenith angle (degrees).
-    """
-
-    lon = np.degrees(lon_rad)
-    lat = np.degrees(lat_rad)
-    msd = mt.getMarsSolarGeometry(time)
-    lt = mt.getLTfromTime(msd, lon)
-    sza = mt.getSZAfromTime(msd, lon, lat)
-    return lt, sza
-
 def get_args(argv):
 
     filelist = []
@@ -198,7 +173,7 @@ def get_args(argv):
         'grid':grid,
         'oplot':oplot,
         'ps':ps,
-        'satdir':'satdir',
+        'satdir':satdir,
     }
 
     return args
@@ -264,7 +239,7 @@ if (args["help"]):
     for var in header["vars"]:
         print(iVar,var)
         iVar=iVar+1
-
+    breakpoint()
     exit()
 
 filelist = args['filelist']
@@ -315,9 +290,7 @@ else:
 
 Var = [header['vars'][i] for i in plot_vars]
 
-varmap = {30:44,29:32,28:16,31:28,32:30,33:28,34:12,4:'CO2',6:'O',
-7:'N2',9:'Ar',5:'CO',
-}
+
 
 varcmap = {28:'O+',29:'O$_2$+',30:'CO$_2$+',31:'N$_2$+',32:'NO+',33:'CO+',34:'C+',
 4:'CO$_2$',6:'O',7:'N$_2$',9:'Ar',5:'CO'}
@@ -441,7 +414,12 @@ if not args['average']:
                 homopause_alt = find_homopause(n2_data, ar_data, alts[iminalt:])
                 if homopause_alt is not None and not args['press']:
                     ax.text(0.95,0.95,f"homopause: {homopause_alt:.1f} km", transform=ax.transAxes, ha='right', va='top')
-            LT, SZA = compute_solar_geom(data['time'], data[0][0,0,0], data[1][0,0,0])
+            lon = np.degrees(lon_rad)
+            lat = np.degrees(lat_rad)
+            msd = mt.getMarsSolarGeometry(time)
+            LT = mt.getLTfromTime(msd, lon)
+            SZA = mt.getSZAfromTime(msd, lon, lat)
+
             ax.set_title(f"{data['time'].strftime('%Y%m%d-%H:%M UT')}\n{LT:.1f} LT, {SZA:.1f} SZA")
             ax.legend(loc='upper left', frameon=False)
             var_list = args['var'].split(',') if isinstance(args['var'], str) and args['var'] != -1 else []
@@ -635,22 +613,28 @@ if sats:
             version = 'v08'
             dentype = 'ion'
 
-        varlist = [varmap[v] for v in plot_vars if v in varmap]
+        varlist = []
+        for v in plot_vars:
+            ngimsvar = ngims.varmap[clean_varname(name_dict[header['vars'][v]])]
+
+            if ngimsvar is not None:
+                varlist.append(ngimsvar)
+        if len(varlist) == 0:
+            print(f'Issue finding a suitable ngims variable for {ngimsvar}')
+            exit()
+            
         files = ngims.getfiles(start,end,dentype=dentype,version=version,dir=satsdir)
         if len(files) == 0:
             print('No NGIMS files found!')
         else:
             model_time = alldata[0]['time']
-            def _file_time(fname):
-                m = re.search(r'_(\d{8}T\d{6})_', os.path.basename(fname))
-                if m:
-                    return dt.datetime.strptime(m.group(1), '%Y%m%dT%H%M%S')
-                return None
-            file_times = [_file_time(f) for f in files]
-            if any(t is not None for t in file_times):
-                diffs = [abs((t - model_time).total_seconds()) if t else float('inf') for t in file_times]
-                files = [files[int(np.argmin(diffs))]]
-
+            
+            # Not sure why we were doing this
+            # file_times = [file_time(f) for f in files]
+            # if any(t is not None for t in file_times):
+            #     diffs = [abs((t - model_time).total_seconds()) if t else float('inf') for t in file_times]
+            #     files = [files[int(np.argmin(diffs))]]
+                          
         if not args['average']:
 
             for fi in files:
@@ -658,12 +642,12 @@ if sats:
                 satdata = satdata[(satdata["alt"] < 350)]
                 satdata = satdata[satdata["quality"].isin(qualityFlag)]
 
-                for pvar in varlist:
-                    searchVar = int(pvar) if dentype == 'ion' else pvar
+                for plotvar in varlist:
+                    searchVar = int(plotvar) if dentype == 'ion' else plotvar
                     newdf = satdata[(satdata[speciesColumn] == searchVar)]
-                    if newdf.shape[0] == 0:
-                        print("Error in ngims_plot_profile: Empty data frame from {}".format(fi))
-                        exit(1)
+                    if newdf.empty:
+                        print(f"Skipping {plotvar} in {fi}: no data")
+                        continue
 
                     if inboundonly:
                         minalt = newdf['alt'].idxmin()
@@ -683,14 +667,14 @@ if sats:
                     altitude = newdf.loc[newdf["alt"] < maxalt,'alt'].values
                     line, = ax.plot(density,altitude,'.',markersize = 5,color='dimgrey',zorder=-1)
                     # if allions:
-                    #     line.set_label(varmap[pvar])
+                    #     line.set_label(varmap[plotvar])
                     # else:
                     #     line.set_label(str(data.orbit.values[0])+starred)
             line.set_label('NGIMS')
 
         else:
             orbitavedensity = np.zeros((len(files),nbins-1))
-            for pvar in varlist:
+            for plotvar in varlist:
                 ifile = 0
 
                 for fi in files:
@@ -699,7 +683,7 @@ if sats:
                     satdata = ngims.readNGIMS(fi)
                     satdata = satdata[(satdata["alt"] < 350)]
                     satdata = satdata[satdata["quality"].isin(qualityFlag)]
-                    newdf = satdata[(satdata[speciesColumn] == int(pvar))]
+                    newdf = satdata[(satdata[speciesColumn] == int(plotvar))]
 
                     if inboundonly:
                             minalt = newdf['alt'].idxmin()
@@ -807,6 +791,7 @@ else:
 if args['mix']:
     pp.xlabel('Mixing Ratio')
 else:
+    
     if header['vars'][pvar].find('==>') > -1:
         pp.xlabel('Reaction Rate (m$^{-3}$s$^{-1}$)')
     elif header['vars'][pvar].find('ionizationfreq') > -1:
@@ -822,7 +807,11 @@ else:
 if args['grid']:
     pp.grid(True)
 
-LT, SZA = compute_solar_geom(data['time'], data[0][0,0,0], data[1][0,0,0])
+lon = np.degrees(data[0][0,0,0])
+lat = np.degrees(data[1][0,0,0])
+msd = mt.getMarsSolarGeometry(data['time'])
+LT = mt.getLTfromTime(msd, lon)
+SZA = mt.getSZAfromTime(msd, lon, lat)
 pp.title(f"{data['time'].strftime('%Y%m%d-%H:%M UT')}\n{LT:.1f} LT, {SZA:.1f} SZA")
 # Build an informative filename similar to gitm_plot_alt_profile
 var_list = args['var'].split(',') if isinstance(args['var'], str) and args['var'] != -1 else []

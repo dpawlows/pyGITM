@@ -11,6 +11,7 @@ from pylab import cm
 import re 
 import pandas as pd 
 import os
+
 #-----------------------------------------------------------------------------
 
 class FileParsingError(Exception):
@@ -20,6 +21,13 @@ class FileParsingError(Exception):
 #-----------------------------------------------------------------------------
 #
 #-----------------------------------------------------------------------------
+
+def file_time(fname):
+    m = re.search(r'_t(\d{6}_\d{6}).', os.path.basename(fname))
+    if m:
+        return datetime.strptime(m.group(1), '%y%m%d_%H%M%S')
+    return None
+
 def find_nearest_index(array, value):
     array = np.asarray(array)
     idx = (np.abs(array - value)).argmin()
@@ -482,6 +490,7 @@ def clean_varname(varname):
                              .replace('!U','')
                              .replace(" ","")
                              .replace("^","")
+                             .replace('_',"")
     )
 
     return cleanvar

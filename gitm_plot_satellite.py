@@ -3,6 +3,7 @@
 ### Plot a GITM satellite file
 
 import sys
+import argparse
 import numpy as np
 import re
 import os
@@ -35,148 +36,29 @@ def find_homopause(n2, ar, alts):
 
 
 def get_args(argv):
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('-var', default=-1)
+    parser.add_argument('-min', dest='min', type=float)
+    parser.add_argument('-max', dest='max', type=float)
+    parser.add_argument('-minalt', type=float)
+    parser.add_argument('-maxalt', type=float)
+    parser.add_argument('-h', action='store_true', dest='help')
+    parser.add_argument('-alog', action='store_true')
+    parser.add_argument('-average', action='store_true')
+    parser.add_argument('-reactions', action='store_true')
+    parser.add_argument('-stddev', action='store_true')
+    parser.add_argument('-sats')
+    parser.add_argument('-satdir', default='.')
+    parser.add_argument('-mix', action='store_true')
+    parser.add_argument('-press', action='store_true')
+    parser.add_argument('-single', action='store_true')
+    parser.add_argument('-grid', action='store_true')
+    parser.add_argument('-oplot', action='store_true')
+    parser.add_argument('-ps', action='store_true')
+    parser.add_argument('filelist', nargs='*')
 
-    filelist = []
-    var = -1
-    help = False
-    alog = False
-    min = None
-    max = None
-    minalt = None
-    maxalt = None
-    average = False
-    stddev = False
-    sats = None
-    satdir = '.'
-    reactions = False
-    mix = False
-    press = False
-    single = False
-    grid = False
-    oplot = False
-    ps = False
-
-    for arg in argv:
-
-        IsFound = 0
-
-        if (not IsFound):
-            m = re.match(r'-var=(.*)',arg)
-            if m:
-                var = m.group(1)
-                IsFound = 1
-
-            m = re.match(r'-min=(.*)',arg)
-            if m:
-                min = float(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-max=(.*)',arg)
-            if m:
-                max = float(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-minalt=(.*)',arg)
-            if m:
-                minalt = float(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-maxalt=(.*)',arg)
-            if m:
-                maxalt = float(m.group(1))
-                IsFound = 1
-            
-            m = re.match(r'-h',arg)
-            if m:
-                help = True
-                IsFound = 1
-
-            m = re.match(r'-alog',arg)
-            if m:
-                alog = True
-                IsFound = 1
-            
-            m = re.match(r'-average',arg)
-            if m:
-                average = True
-                IsFound = 1
-
-            m = re.match(r'-reactions',arg)
-            if m:
-                reactions = True
-                IsFound = 1
-
-            m = re.match(r'-stddev',arg)
-            if m:
-                stddev = True
-                IsFound = 1
-
-            m = re.match(r'-sats=(.*)',arg)
-            if m:
-                sats = m.group(1)
-                IsFound = 1
-
-            m = re.match(r'-satdir=(.*)',arg)
-            if m:
-                satdir = m.group(1)
-                IsFound = 1
-
-            m = re.match(r'-mix',arg)
-            if m:
-                mix = True
-                IsFound = 1
-
-            m = re.match(r'-press',arg)
-            if m:
-                press = True
-                IsFound = 1
-
-            m = re.match(r'-single',arg)
-            if m:
-                single = True
-                IsFound = 1
-
-            m = re.match(r'-grid',arg)
-            if m:
-                grid = True
-                IsFound = 1
-
-            m = re.match(r'-oplot',arg)
-            if m:
-                oplot = True
-                IsFound = 1
-
-            m = re.match(r'-ps',arg)
-            if m:
-                ps = True
-                IsFound = 1
-
-            if IsFound==0 and not(arg==argv[0]):
-                filelist.append(arg)
-
-
-    args = {'filelist':filelist,
-        'var':var,
-        'help':help,
-        'alog':alog,
-        'min':min,
-        'max':max,
-        'minalt':minalt,
-        'maxalt':maxalt,
-        'average':average,
-        'stddev':stddev,
-        'sats':sats,
-        'reactions':reactions,
-        'mix':mix,
-        'press':press,
-        'single':single,
-        'grid':grid,
-        'oplot':oplot,
-        'ps':ps,
-        'satdir':satdir,
-    }
-
-    return args
+    namespace = parser.parse_args(argv[1:])
+    return vars(namespace)
 
 plotmaxden = False
 args = get_args(sys.argv)
@@ -832,4 +714,3 @@ outfile = f"{prefix}_var{svar}_{data['time'].strftime('%y%m%d_%H%M%S')}.{ext}"
 print(f"Writing to file: {outfile}")
 pp.savefig(outfile)
 # breakpoint()
-

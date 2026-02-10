@@ -42,6 +42,7 @@ def get_args(argv):
     parser.add_argument('-max', dest='max', type=float)
     parser.add_argument('-minalt', type=float)
     parser.add_argument('-maxalt', type=float)
+    parser.add_argument('-plotalt', type=float)
     parser.add_argument('-h', action='store_true', dest='help')
     parser.add_argument('-alog', action='store_true')
     parser.add_argument('-average', action='store_true')
@@ -81,6 +82,14 @@ if args['press'] and sats:
     print('Satellite comparison not available with -press option. Ignoring -sats.')
     sats = None
 
+if args['plotalt'] is not None and args['press']:
+    print('The -plotalt option is not available with -press. Ignoring -press.')
+    args['press'] = False
+
+if args['plotalt'] is not None and sats:
+    print('Satellite comparison not available with -plotalt option. Ignoring -sats.')
+    sats = None
+
 if args['stddev'] and not args['average']:
     print('You must specify -average if you are using -stddev')
     args['help'] = True
@@ -103,6 +112,7 @@ if (args["help"]):
     print('   -max=max: maximum value to plot')
     print('   -minalt=alt: minimum altitude (km) to plot')
     print('   -maxalt=alt: maximum altitude (km) to plot')
+    print('   -plotalt=alt: plot variable at one altitude (km) versus time')
     print('   -average: plot orbit averages')
     print('   -stddev: if using average, also plot stddev')
     print('   -sats=sats: overplot sat files. Current sat options')
@@ -236,6 +246,81 @@ if args['press']:
     yarrays = pressures
 else:
     yarrays = [alts for _ in alldata]
+
+if args['plotalt'] is not None:
+    plotalt_idx = find_nearest_index(alts, args['plotalt'])
+    plotalt_km = alts[plotalt_idx]
+
+    times = [data['time'] for data in alldata]
+    time_order = np.argsort(times)
+
+    fig, ax = pp.subplots()
+    minv = np.inf
+    maxv = -np.inf
+
+    if args['mix']:
+        totals = []
+        for data in alldata:
+            total = np.zeros_like(data[plot_vars[0]][0,0,:])
+            for idx in plot_vars:
+                total += data[idx][0,0,:]
+            totals.append(total)
+
+    for ivar, pvar in enumerate(plot_vars):
+        tseries = []
+        vseries = []
+        for i in time_order:
+            data = alldata[i]
+            pdata = data[pvar][0,0,plotalt_idx]
+            if args['mix']:
+                denom = totals[i][plotalt_idx]
+                pdata = pdata / denom if denom > 0 else 0
+            if args['alog']:
+                pdata = np.log10(pdata) if pdata > 0 else 0
+            tseries.append(times[i])
+            vseries.append(pdata)
+
+        minv = min(minv, np.min(vseries))
+        maxv = max(maxv, np.max(vseries))
+        label = name_dict.get(header['vars'][pvar], header['vars'][pvar])
+        ax.plot(tseries, vseries, color=colors[ivar % len(colors)], marker='o', label=label)
+
+    mini = args['min'] if args['min'] is not None else minv
+    maxi = args['max'] if args['max'] is not None else maxv
+    ax.set_ylim([mini, maxi])
+    ax.set_xlabel('Time (UT)')
+    if args['mix']:
+        ax.set_ylabel('Mixing Ratio')
+    elif args['reactions']:
+        ax.set_ylabel('Reaction Rate (m$^{-3}$s$^{-1}$)')
+    else:
+        ax.set_ylabel('Density (m$^{-3}$)')
+    ax.set_title(f"{plotalt_km:.1f} km")
+    if args['grid']:
+        ax.grid(True)
+    ax.legend(loc='upper left', frameon=False)
+
+    fig.autofmt_xdate()
+    var_list = args['var'].split(',') if isinstance(args['var'], str) and args['var'] != -1 else []
+    if args['mix']:
+        svar = 'mix'
+    elif len(var_list) > 1:
+        svar = 'multi'
+    elif len(var_list) == 1:
+        svar = var_list[0]
+        if svar.isdigit():
+            svar = f"{int(svar):02d}"
+        else:
+            svar = svar.replace('/', '_')
+    else:
+        svar = 'novar'
+
+    ext = 'ps' if args['ps'] else 'png'
+    outfile = f"satellite_time_var{svar}_alt{int(round(plotalt_km)):03d}.{ext}"
+    print(f"Writing to file: {outfile}")
+    pp.savefig(outfile)
+    pp.close(fig)
+    sys.exit(0)
 
 if not args['average']:
     if len(alldata) > 1 and (len(plot_vars) > 1 or args['single']) and not args['oplot']:

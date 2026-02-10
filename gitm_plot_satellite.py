@@ -239,7 +239,6 @@ if (args["help"]):
     for var in header["vars"]:
         print(iVar,var)
         iVar=iVar+1
-    breakpoint()
     exit()
 
 filelist = args['filelist']

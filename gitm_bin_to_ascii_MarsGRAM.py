@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-from glob import glob
 import sys
 import numpy as np
 import re
@@ -103,13 +102,18 @@ def process_one_file(file, minalt, coordinates,header):
     f.write("#Number of Latitude points: "+str(totalLats)+"\n")
     f.write("#Number of Altitude points: "+str(totalAlts)+"\n")
     f.write("#Units   Densities: #/m3, temperatures: K, wind speeds: m/s., rho: kg/m3,   pressure: Pa"+"\n")
-    myvars = ["".join(data['vars'][i].decode().split()) for i in vars]  
-    myvars2 = "   ".join(name_dict[i] for i in myvars)      
+    myvars = ["".join(data['vars'][i].decode().split()) for i in vars]
+    myvars2 = "   ".join(name_dict[i] for i in myvars)
     f.write(myvars2+'   rho   pressure'+"\n")
     f.write("#START\n")
 
-    gdLats = np.zeros((nLats-4, nAlts-ialtstart-2))
-    gdAlts = np.zeros((nLats-4, nAlts-ialtstart-2))
+    n_lons_core = nLons - 4
+    n_lats_core = nLats - 4
+    n_alts_core = nAlts - ialtstart - 2
+    lons_core = Lons[2:-2]
+
+    gdLats = np.broadcast_to(Lats[2:-2, None], (n_lats_core, n_alts_core)).copy()
+    gdAlts = np.broadcast_to(tempalts[None, :], (n_lats_core, n_alts_core)).copy()
     
  
     if coordinates == 'geodetic':
@@ -119,7 +123,7 @@ def process_one_file(file, minalt, coordinates,header):
     
         ilon = 50
         for ialt in range(ialtstart,nAlts-2):
-            for ilat in range(0,nLats-4):
+            for ilat in range(0,n_lats_core):
                 gcoordinates = np.array([[Lats[ilat+2],Lons[ilon],Alts[ialt]]]).transpose()
                 gd = gc.geo2geodetic(gcoordinates,planet='mars')
                 gdLats[ilat,ialt-ialtstart] = gd[0,0]
@@ -131,34 +135,56 @@ def process_one_file(file, minalt, coordinates,header):
     # Y = our chosen variable (e.g. Tn or Ti, etc.)
     # newX = our desired Aerodetic grid
 
-    newData = {k:np.zeros((nLons-4,nLats-4,nAlts-ialtstart-2)) for k in vars[3:]}
-    newData['rho'] = np.zeros((nLons-4,nLats-4,nAlts-ialtstart-2))
-    newData['pressure'] = np.zeros((nLons-4,nLats-4,nAlts-ialtstart-2))
-    
-    for ilon in range(0,nLons - 4):
-        for ialt in range(ialtstart,nAlts-2):
+    interp_vars = vars[3:]
+    data_slices = {var: data[var][2:-2, 2:-2, ialtstart:nAlts-2] for var in interp_vars}
+    number_density = np.zeros((n_lons_core, n_lats_core, n_alts_core))
+    rho_raw = np.zeros((n_lons_core, n_lats_core, n_alts_core))
+    for i in rhovars:
+        ni = data[i][2:-2, 2:-2, ialtstart:nAlts-2]
+        number_density += ni
+        rho_raw += ni * masses[header['vars'][i]] * AMU
 
-            X = gdLats[:,ialt-ialtstart] #We have data here
+    pressure_raw = boltzmann * number_density * data[15][2:-2, 2:-2, ialtstart:nAlts-2]
+
+    newData = {k:np.zeros((n_lons_core, n_lats_core, n_alts_core)) for k in interp_vars}
+    newData['rho'] = np.zeros((n_lons_core, n_lats_core, n_alts_core))
+    newData['pressure'] = np.zeros((n_lons_core, n_lats_core, n_alts_core))
+
+    lat_spline_cache = {}
+    
+    for ilon in range(0, n_lons_core):
+        for ialt in range(ialtstart,nAlts-2):
+            ialt_idx = ialt - ialtstart
+
+            X = gdLats[:, ialt_idx] #We have data here
             #Do the interpolation- cubic spline in the horizontal direction for everything
             Y = gdLats[:,ialt-ialtstart]
             cs = CubicSpline(X,Y) 
             newLats = cs(newX)  #Latitude is weird. This is just a validation- newLats should equal newX. We want the grid to be regular.
 
-            for var in vars[3:]:
-                Y = data[var][ilon+2,2:-2,ialt]
-                cs = CubicSpline(X,Y)
-                newData[var][ilon,:,ialt-ialtstart] = cs(newX)
+            spline_key = tuple(np.round(X, 10))
+            if spline_key not in lat_spline_cache:
+                lat_spline_cache[spline_key] = (X.copy(), np.argsort(X))
+            x_sorted, x_order = lat_spline_cache[spline_key]
+
+            def spline_to_newx(y_values):
+                cs_local = CubicSpline(x_sorted, y_values[x_order], extrapolate=True)
+                return cs_local(newX)
+
+            for var in interp_vars:
+                Y = data_slices[var][ilon, :, ialt_idx]
+                newData[var][ilon,:,ialt_idx] = spline_to_newx(Y)
 
                 
-                if np.min(newData[var][ilon,:,ialt-ialtstart]) < 0 and var in rhovars:
+                if np.min(newData[var][ilon,:,ialt_idx]) < 0 and var in rhovars:
                     #while rare, it is possible for the spline to give a negative number
-                    imin = np.argmin(newData[var][ilon,:,ialt-ialtstart])
+                    imin = np.argmin(newData[var][ilon,:,ialt_idx])
                     if imin == 0:
-                        newData[var][ilon,imin,ialt-ialtstart] = Y[0]
+                        newData[var][ilon,imin,ialt_idx] = Y[0]
                     else:
                         #so use linear instead
                         
-                        lenvar = len(X)
+                        lenvar = len(x_sorted)
                         valuesAfterMin = (lenvar-1) - imin # subtract 1 because we are comparing indices
 
                         if valuesAfterMin == 0:
@@ -170,52 +196,39 @@ def process_one_file(file, minalt, coordinates,header):
 
                         #Y = data[var][ilon,imin:imin+5,ialt] #this caused a problem if the negative number was near the edge
                         # of the grid
-                        Y = data[var][ilon,imin:iend+1,ialt] #get the original data surrounding the negative
-                        od = interp1d(X[max(imin-2,0):max(imin-2,0)+len(Y)],Y,fill_value='extrapolate')
-                        newData[var][ilon,imin,ialt-ialtstart] = newX[imin-1:imin+2][1]
+                        y_patch = Y[imin:iend+1] #get the original data surrounding the negative
+                        x_patch = x_sorted[max(imin-2,0):max(imin-2,0)+len(y_patch)]
+                        od = interp1d(x_patch, y_patch, fill_value='extrapolate')
+                        newData[var][ilon,imin,ialt_idx] = od(newX[imin])
                         
-                        if newData[var][ilon,imin,ialt-ialtstart] < 0:
+                        if newData[var][ilon,imin,ialt_idx] < 0:
                             # Still have an issue? Exponential interpolation
-                            Y = np.log10(data[var][ilon,imin:iend+1,ialt]) #get the original data surrounding the negative
-                            od = interp1d(X[imin-2:imin-2+len(Y)],Y,fill_value='extrapolate')
-                            newData[var][ilon,imin,ialt-ialtstart] = 10**newX[imin-1:imin+2][1]
+                            y_patch = np.log10(np.clip(Y[imin:iend+1], 1e-300, None)) #get the original data surrounding the negative
+                            x_patch = x_sorted[max(imin-2,0):max(imin-2,0)+len(y_patch)]
+                            od = interp1d(x_patch, y_patch, fill_value='extrapolate')
+                            newData[var][ilon,imin,ialt_idx] = 10**od(newX[imin])
 
                         # if (ilon == 10 and ialt >= 117):
                         #     breakpoint(newData[var][ilon,imin,ialt-ialtstart])
 
-            rho = 0
-            numberDensity = 0
-            for i in rhovars:
-                ni = data[i][ilon+2,2:-2,ialt]   # number density
-                mi = masses[header['vars'][i]]  # amu
-
-                numberDensity += ni
-                rho += ni * mi * AMU
-
-            cs = CubicSpline(X,rho)
-            newData['rho'][ilon,:,ialt-ialtstart] = cs(newX)
-
-            #calculate pressure; p = nkT
-            pressure = boltzmann*numberDensity*data[15][ilon+2,2:-2:,ialt]
-
-            cs = CubicSpline(X,pressure)
-            newData['pressure'][ilon,:,ialt-ialtstart] = cs(newX)
+            newData['rho'][ilon,:,ialt_idx] = spline_to_newx(rho_raw[ilon, :, ialt_idx])
+            newData['pressure'][ilon,:,ialt_idx] = spline_to_newx(pressure_raw[ilon, :, ialt_idx])
 
     # Next, interpolate in the vertical
     # We have already done the latitudes
 
     nAltsNew = len(altitudeGrid)
-    gdData = {k:np.zeros((nLons-4,nLats-4,nAltsNew)) for k in vars[3:]}
-    gdData['rho'] = np.zeros((nLons-4,nLats-4,nAltsNew))
-    gdData['pressure'] = np.zeros((nLons-4,nLats-4,nAltsNew))
+    gdData = {k:np.zeros((n_lons_core,n_lats_core,nAltsNew)) for k in interp_vars}
+    gdData['rho'] = np.zeros((n_lons_core,n_lats_core,nAltsNew))
+    gdData['pressure'] = np.zeros((n_lons_core,n_lats_core,nAltsNew))
 
-    for ilon in range(0,nLons-4):
-        for ilat in range(0,nLats-4):
+    for ilon in range(0, n_lons_core):
+        for ilat in range(0, n_lats_core):
 
             X = gdAlts[ilat,:]
             # the "new x" will be simply altitudeGrid, specified above
 
-            for var in vars[3:]:
+            for var in interp_vars:
                 if var not in logarithmic:
                     Y = newData[var][ilon,ilat,:]
                     cs = CubicSpline(X,Y)
@@ -225,26 +238,28 @@ def process_one_file(file, minalt, coordinates,header):
                     cs = CubicSpline(X,Y)
                     gdData[var][ilon,ilat,:] = np.exp(cs(altitudeGrid))
                  
-                Y = np.log(newData['rho'][ilon,ilat,:])
-                cs = CubicSpline(X,Y)
-                gdData['rho'][ilon,ilat,:] = np.exp(cs(altitudeGrid))
-                
-                Y = np.log(newData['pressure'][ilon,ilat,:])
-                cs = CubicSpline(X,Y)
-                gdData['pressure'][ilon,ilat,:] = np.exp(cs(altitudeGrid))
+            Y = np.log(np.clip(newData['rho'][ilon,ilat,:], 1e-300, None))
+            cs = CubicSpline(X,Y)
+            gdData['rho'][ilon,ilat,:] = np.exp(cs(altitudeGrid))
 
+            Y = np.log(np.clip(newData['pressure'][ilon,ilat,:], 1e-300, None))
+            cs = CubicSpline(X,Y)
+            gdData['pressure'][ilon,ilat,:] = np.exp(cs(altitudeGrid))
 
-    for ilon in range(totalLons):
-        for ilat in range(totalLats):
-            for ialt in range(totalAlts):
-                thisdata = [Lons[ilon+2]*rtod,newX[ilat]*rtod,altitudeGrid[ialt]]
-                for var in vars[3:]:
-                    thisdata.append(gdData[var][ilon,ilat,ialt])
-                
-                thisdata.append(gdData['rho'][ilon,ilat,ialt])
-                #calculate and output pressure
-                thisdata.append(gdData['pressure'][ilon,ilat,ialt])
-                f.write("    ".join('{:g}'.format(ele) for ele in thisdata)+"\n")
+    lon_grid, lat_grid, alt_grid = np.meshgrid(
+        lons_core * rtod,
+        newX * rtod,
+        altitudeGrid,
+        indexing='ij',
+    )
+
+    output_columns = [lon_grid.ravel(), lat_grid.ravel(), alt_grid.ravel()]
+    for var in interp_vars:
+        output_columns.append(gdData[var].ravel())
+    output_columns.append(gdData['rho'].ravel())
+    output_columns.append(gdData['pressure'].ravel())
+    out_matrix = np.column_stack(output_columns)
+    np.savetxt(f, out_matrix, fmt='%g', delimiter='    ')
 
     f.close()
 

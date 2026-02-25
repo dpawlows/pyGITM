@@ -106,19 +106,36 @@ if args['diff'] != '0':
     bFile = backgroundFilelist[0]
 
 plot_keys = args['var'].split(',')
+pressure_density_indices = []
+pressure_temp_index = None
 if args['pressure']:
-    required_all_indices = list(range(4, 15)) + [15]
-    is_all_file = all(idx < len(header['vars']) for idx in required_all_indices)
-    if not is_all_file:
-        print('Pressure plotting requires an ALL file with variables 4-14 (densities) and 15 (Temperature).')
+    try:
+        pressure_temp_index = header['vars'].index('Temperature')
+    except ValueError:
+        print('Pressure plotting requires an ALL file that includes Temperature.')
         exit(1)
+
+    try:
+        rho_index = header['vars'].index('Rho')
+    except ValueError:
+        print('Pressure plotting requires an ALL file that includes Rho and neutral densities.')
+        exit(1)
+
+    pressure_density_indices = [
+        i for i in range(rho_index + 1, pressure_temp_index)
+        if header['vars'][i].startswith('[') and header['vars'][i].endswith(']')
+    ]
+    if len(pressure_density_indices) == 0:
+        print('Pressure plotting requires neutral density variables between Rho and Temperature in the ALL file.')
+        exit(1)
+
     plot_keys = ['pressure']
 
 requested_vars = []
 if not args['pressure']:
     requested_vars.extend([int(v) for v in plot_keys])
 else:
-    requested_vars.extend(list(range(4, 15)) + [15])
+    requested_vars.extend(pressure_density_indices + [pressure_temp_index])
 
 vars.extend(requested_vars)
 vars = list(dict.fromkeys(vars))
@@ -166,15 +183,15 @@ if args['cut'] == 'loc':
 
     for ivar in plot_keys:
         if ivar == 'pressure':
-            number_density = np.zeros_like(data[15][ilon,ilat,ialt1:ialt2+1])
-            for idens in range(4, 15):
+            number_density = np.zeros_like(data[pressure_temp_index][ilon,ilat,ialt1:ialt2+1])
+            for idens in pressure_density_indices:
                 number_density = number_density + data[idens][ilon,ilat,ialt1:ialt2+1]
-            temp = number_density*boltzmann*data[15][ilon,ilat,ialt1:ialt2+1]
+            temp = number_density*boltzmann*data[pressure_temp_index][ilon,ilat,ialt1:ialt2+1]
             if diff:
-                b_number_density = np.zeros_like(background[15][ilon,ilat,ialt1:ialt2+1])
-                for idens in range(4, 15):
+                b_number_density = np.zeros_like(background[pressure_temp_index][ilon,ilat,ialt1:ialt2+1])
+                for idens in pressure_density_indices:
                     b_number_density = b_number_density + background[idens][ilon,ilat,ialt1:ialt2+1]
-                btemp = b_number_density*boltzmann*background[15][ilon,ilat,ialt1:ialt2+1]
+                btemp = b_number_density*boltzmann*background[pressure_temp_index][ilon,ilat,ialt1:ialt2+1]
                 temp = (temp-btemp)/btemp*100.0
 
         elif diff:
@@ -191,16 +208,16 @@ if args['cut'] == 'sza':
     mask = (AllSZA[-1] >= smin) & (AllSZA[-1] <= smax ) 
     for ivar in plot_keys:
         if ivar == 'pressure':
-            number_density = np.zeros_like(data[15][:,:,ialt1:ialt2+1])
-            for idens in range(4, 15):
+            number_density = np.zeros_like(data[pressure_temp_index][:,:,ialt1:ialt2+1])
+            for idens in pressure_density_indices:
                 number_density = number_density + data[idens][:,:,ialt1:ialt2+1]
-            pressure = number_density*boltzmann*data[15][:,:,ialt1:ialt2+1]
+            pressure = number_density*boltzmann*data[pressure_temp_index][:,:,ialt1:ialt2+1]
             temp = pressure[mask].mean(axis=0)
             if diff:
-                b_number_density = np.zeros_like(background[15][:,:,ialt1:ialt2+1])
-                for idens in range(4, 15):
+                b_number_density = np.zeros_like(background[pressure_temp_index][:,:,ialt1:ialt2+1])
+                for idens in pressure_density_indices:
                     b_number_density = b_number_density + background[idens][:,:,ialt1:ialt2+1]
-                bpressure = b_number_density*boltzmann*background[15][:,:,ialt1:ialt2+1]
+                bpressure = b_number_density*boltzmann*background[pressure_temp_index][:,:,ialt1:ialt2+1]
                 mean2 = bpressure[mask].mean(axis=0)
                 temp = (temp-mean2)/mean2*100.
 

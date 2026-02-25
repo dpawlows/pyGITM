@@ -4,113 +4,34 @@
 from glob import glob
 from datetime import datetime
 from datetime import timedelta
+import argparse
 import numpy as np
 import matplotlib.pyplot as pp
 import matplotlib.dates as mdates
 from matplotlib.gridspec import GridSpec
 from gitm_routines import *
-import re
 import sys
 
 rtod = 180.0/3.141592
 
 def get_args(argv):
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('filelist', nargs='*')
+    parser.add_argument('-var', default='15')
+    parser.add_argument('-diff', default='0')
+    parser.add_argument('-cut', default='loc', choices=['loc', 'sza'])
+    parser.add_argument('-lat', type=int, default=-100)
+    parser.add_argument('-lon', type=int, default=-100)
+    parser.add_argument('-smin', type=int, default=-100)
+    parser.add_argument('-smax', type=int, default=-100)
+    parser.add_argument('-min', dest='minv', type=float, default=None)
+    parser.add_argument('-max', dest='maxv', type=float, default=None)
+    parser.add_argument('-alog', dest='IsLog', action='store_true')
+    parser.add_argument('-h', '--help', dest='help', action='store_true')
 
-    filelist = []
-    IsLog = 0
-    diff = '0'
-    var = 15
-    alt = 400.0
-    lon = -100.0
-    lat = -100.0
-    cut = 'loc'
-    smin = -100.0
-    smax = -100.0
-    minv = None
-    maxv = None
+    parsed_args = parser.parse_args(argv[1:])
 
-    help = 0
-
-
-    for arg in argv:
-
-        IsFound = 0
-
-        if (not IsFound):
-
-            m = re.match(r'-var=(.*)',arg)
-            if m:
-                var = m.group(1)
-                IsFound = 1
-
-            m = re.match(r'-diff=(.*)',arg)
-            if m:
-                diff = m.group(1)
-                IsFound = 1
-
-            m = re.match(r'-cut=(.*)',arg)
-            if m:
-                cut = m.group(1)
-                IsFound = 1
-
-            m = re.match(r'-lat=(.*)',arg)
-            if m:
-                lat = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-lon=(.*)',arg)
-            if m:
-                lon = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-smin=(.*)',arg)
-            if m:
-                smin = int(m.group(1))
-                IsFound = 1   
-
-            m = re.match(r'-smax=(.*)',arg)
-            if m:
-                smax = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-min=(.*)',arg)
-            if m:
-                minv = float(m.group(1))
-                IsFound = 1   
-
-            m = re.match(r'-max=(.*)',arg)
-            if m:
-                maxv = float(m.group(1))
-                IsFound = 1  
-
-            m = re.match(r'-alog',arg)
-            if m:
-                IsLog = 1
-                IsFound = 1
-
-            m = re.match(r'-h',arg)
-            if m:
-                help = 1
-                IsFound = 1
-
-
-            if IsFound==0 and not(arg==argv[0]):
-                filelist.append(arg)
-
-    args = {'filelist':filelist,
-            'var':var,
-            'help':help,
-            'lat':lat,
-            'lon':lon,
-            'IsLog':IsLog,
-            'cut':cut,
-            'smin':smin,
-            'smax':smax,
-            'diff':diff,
-            'minv':minv,
-            'maxv':maxv}
-
-    return args
+    return vars(parsed_args)
 
 args = get_args(sys.argv)
 header = read_gitm_header(args["filelist"])
@@ -151,8 +72,9 @@ if (args["help"]):
 
 
 filelist = args["filelist"]
+nFiles = len(filelist)
 
-if len(filelist) > 1:
+if nFiles != 1:
     print('Only 1 file should be specified')
     exit(1)
 

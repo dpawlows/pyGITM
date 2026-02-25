@@ -26,6 +26,8 @@ def get_args(argv):
     parser.add_argument('-smax', type=int, default=-100)
     parser.add_argument('-min', dest='minv', type=float, default=None)
     parser.add_argument('-max', dest='maxv', type=float, default=None)
+    parser.add_argument('-minalt', type=float, default=90.0)
+    parser.add_argument('-maxalt', type=float, default=280.0)
     parser.add_argument('-alog', dest='IsLog', action='store_true')
     parser.add_argument('-h', '--help', dest='help', action='store_true')
 
@@ -59,6 +61,8 @@ if (args["help"]):
     print('   -smax=maxsza: maximum solar zenigh angle (cut=sza)')
     print('   -min=min: minimum value to plot')
     print('   -max=max: maximum value to plot')
+    print('   -minalt=min: minimum altitude (km) to plot')
+    print('   -maxalt=max: maximum altitude (km) to plot')
     print('   -alog: plot the log of the variable')
     print('   -diff=backgroundFiles: plot the difference between 2 sets of files')
     print('   Non-KW arg: files.')
@@ -114,8 +118,12 @@ Alts = data[2][0][0]/1000.0
 Lons = data[0][:,0,0]*rtod
 Lats = data[1][0,:,0]*rtod
 
-ialt1 = find_nearest_index(Alts,90)
-ialt2 = find_nearest_index(Alts,300)
+if args['maxalt'] <= args['minalt']:
+    print('maxalt must be greater than minalt')
+    exit(1)
+
+ialt1 = find_nearest_index(Alts,args['minalt'])
+ialt2 = find_nearest_index(Alts,args['maxalt'])
 
 time = data["time"]
 
@@ -224,7 +232,7 @@ else:
     maxv = args['maxv']
 
 pp.xlim([minv,maxv])
-pp.ylim([90,280])
+pp.ylim([args['minalt'],args['maxalt']])
 
    
 

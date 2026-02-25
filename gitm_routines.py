@@ -378,7 +378,7 @@ masses = {"[C]":mC,
 "[N!D2!N]":2*mN,
 "[Ar]":mAr,
 "[NO]":mN + mO,
-"[CO!D2!N]":mC + mO
+"[CO!D2!N]":mC + 2*mO
 }
 
 name_dict = {"Altitude":"Altitude",

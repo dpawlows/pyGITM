@@ -186,15 +186,18 @@ def process_one_file(file, minalt, coordinates,header):
             rho = 0
             numberDensity = 0
             for i in rhovars:
-                n = data[i][ilon+2,2:-2,ialt]*masses[header['vars'][i]]
-                thisDensity = n * AMU
-                numberDensity = numberDensity + n 
-                rho = rho + thisDensity
+                ni = data[i][ilon+2,2:-2,ialt]   # number density
+                mi = masses[header['vars'][i]]  # amu
+
+                numberDensity += ni
+                rho += ni * mi * AMU
+
             cs = CubicSpline(X,rho)
             newData['rho'][ilon,:,ialt-ialtstart] = cs(newX)
 
             #calculate pressure; p = nkT
             pressure = boltzmann*numberDensity*data[15][ilon+2,2:-2:,ialt]
+
             cs = CubicSpline(X,pressure)
             newData['pressure'][ilon,:,ialt-ialtstart] = cs(newX)
 

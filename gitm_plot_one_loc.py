@@ -3,6 +3,7 @@
 from glob import glob
 from datetime import datetime
 from datetime import timedelta
+import argparse
 import numpy as np
 import matplotlib.pyplot as pp
 import matplotlib.dates as mdates
@@ -32,126 +33,48 @@ plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
 def get_args(argv):
 
-    filelist = []
-    IsLog = 0
-    diff = '0'
-    var = 15
-    alt = 400.0
-    lon = -100.0
-    lat = -100.0
-    alt = -100.0
-    cut = 'loc'
-    smin = -100.0
-    smax = -100.0
-    lt = -100
-    average = -100.0
-    mini = None
-    maxi = None
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('-var', default='15')
+    parser.add_argument('-diff', default='0')
+    parser.add_argument('-cut', default='loc')
+    parser.add_argument('-lat', type=int, default=-100)
+    parser.add_argument('-lon', type=int, default=-100)
+    parser.add_argument('-alt', type=int, default=-100)
+    parser.add_argument('-lt', type=int, default=-100)
+    parser.add_argument('-average', type=int, default=-100)
+    parser.add_argument('-smin', type=int, default=-100)
+    parser.add_argument('-smax', type=int, default=-100)
+    parser.add_argument('-mini', type=float)
+    parser.add_argument('-maxi', type=float)
+    parser.add_argument('-alog', action='store_true')
+    parser.add_argument('-h', '-help', action='store_true', dest='help')
+    parser.add_argument('filelist', nargs='*')
 
-    help = 0
+    parsed = parser.parse_args(argv[1:])
 
-
-    for arg in argv:
-
-        IsFound = 0
-
-        if (not IsFound):
-
-            m = re.match(r'-var=(.*)',arg)
-            if m:
-                var = m.group(1)
-                IsFound = 1
-
-            m = re.match(r'-diff=(.*)',arg)
-            if m:
-                diff = m.group(1)
-                IsFound = 1
-
-            m = re.match(r'-cut=(.*)',arg)
-            if m:
-                cut = m.group(1)
-                IsFound = 1
-
-
-            m = re.match(r'-lat=(.*)',arg)
-            if m:
-                lat = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-lon=(.*)',arg)
-            if m:
-                lon = int(m.group(1))
-                IsFound = 1
-    
-            m = re.match(r'-alt=(.*)',arg)
-            if m:
-                alt = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-lt=(.*)',arg)
-            if m:
-                lt = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-average=(.*)',arg)
-            if m:
-                average = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-smin=(.*)',arg)
-            if m:
-                smin = int(m.group(1))
-                IsFound = 1   
-
-            m = re.match(r'-smax=(.*)',arg)
-            if m:
-                smax = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-mini=(.*)',arg)
-            if m:
-                mini = float(m.group(1))
-                IsFound = 1   
-
-            m = re.match(r'-maxi=(.*)',arg)
-            if m:
-                maxi = float(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-alog',arg)
-            if m:
-                IsLog = 1
-                IsFound = 1
-
-            m = re.match(r'-h',arg)
-            if m:
-                help = 1
-                IsFound = 1
-
-
-            if IsFound==0 and not(arg==argv[0]):
-                filelist.append(arg)
-
-    args = {'filelist':filelist,
-            'var':var,
-            'help':help,
-            'lat':lat,
-            'lon':lon,
-            'alt':alt,
-            'IsLog':IsLog,
-            'cut':cut,
-            'smin':smin,
-            'smax':smax,
-            'diff':diff,
-            'lt':lt,
-            'average':average,
-            'mini':mini,
-            'maxi':maxi}
+    args = {'filelist':parsed.filelist,
+            'var':parsed.var,
+            'help':parsed.help,
+            'lat':parsed.lat,
+            'lon':parsed.lon,
+            'alt':parsed.alt,
+            'IsLog':int(parsed.alog),
+            'cut':parsed.cut,
+            'smin':parsed.smin,
+            'smax':parsed.smax,
+            'diff':parsed.diff,
+            'lt':parsed.lt,
+            'average':parsed.average,
+            'mini':parsed.mini,
+            'maxi':parsed.maxi}
 
     return args
 
 args = get_args(sys.argv)
-header = read_gitm_header(args["filelist"])
+if args['filelist']:
+    header = read_gitm_header(args["filelist"])
+else:
+    header = {'vars': []}
 averaging = False 
 if args['average'] > 0:
     averaging = True

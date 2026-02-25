@@ -1,8 +1,7 @@
 #!/usr/bin/env python
 
-import sys
+import argparse
 import numpy as np
-import re
 from scipy.interpolate import CubicSpline, interp1d
 from scipy.constants import k as boltzmann
 from concurrent.futures import ProcessPoolExecutor
@@ -19,47 +18,33 @@ logarithmic = [4, 5, 6, 7, 9, 14]
 rhovars = [4, 5, 6, 7, 9, 14]
 header = None
 
-def get_args(argv):
-    filelist = []
-    coordinates = 'geographic'
-    help = False
-    minalt = 40
-    serial = False 
-
-    for arg in argv:
-        IsFound = 0
-
-        if not IsFound:
-            m = re.match(r'-h', arg)
-            if m:
-                help = 1
-                IsFound = 1
-
-            m = re.match(r'-serial', arg)
-            if m:
-                serial = True
-                IsFound = 1
-
-            m = re.match(r'-coordinates=(.*)', arg)
-            if m:
-                coordinates = m.group(1)
-                IsFound = 1
-
-            m = re.match(r'-minalt=(.*)', arg)
-            if m:
-                minalt = float(m.group(1))
-                IsFound = 1
-
-        if IsFound == 0 and not (arg == argv[0]):
-            filelist.append(arg)
-
-    return {
-        'filelist': filelist,
-        'coordinates': coordinates.lower(),
-        'help': help,
-        'minalt': minalt,
-        'serial':serial,
-    }
+def get_args():
+    parser = argparse.ArgumentParser(
+        description='Convert GITM binary output to MarsGRAM ASCII format.'
+    )
+    parser.add_argument(
+        'filelist',
+        nargs='*',
+        help='Input GITM .bin files to process',
+    )
+    parser.add_argument(
+        '-coordinates', '--coordinates',
+        default='geographic',
+        choices=coordoptions,
+        help='Coordinate system to use for interpolation (default: geographic)',
+    )
+    parser.add_argument(
+        '-minalt', '--minalt',
+        type=float,
+        default=40.0,
+        help='Minimum altitude (km) used to begin interpolation (default: 40)',
+    )
+    parser.add_argument(
+        '-serial', '--serial',
+        action='store_true',
+        help='Run file conversions serially (default: parallel)',
+    )
+    return parser.parse_args()
 
 
 def process_one_file(file, minalt, coordinates,header):
@@ -266,25 +251,16 @@ def process_one_file(file, minalt, coordinates,header):
 
 
 def main():
-    
-    args = get_args(sys.argv)
-    filelist = args['filelist']
-    coordinates = args['coordinates']
-    minalt = args['minalt']
-    run_serial = args['serial']
- 
 
-    if coordinates not in coordoptions:
-        print(f'{coordinates} is not a coordinate option')
-        args['help'] = True
+    args = get_args()
+    filelist = args.filelist
+    coordinates = args.coordinates
+    minalt = args.minalt
+    run_serial = args.serial
 
-    if args['help'] or len(filelist) < 1:
-        header = read_gitm_header(filelist)
-        print('Usage:')
-        print('gitm_bin_to_ascii_MarsGRAM.py -coordinates=geographic|geodetic -minalt=N [*.bin files]')
-        print('Available variables:')
-        for i, var in enumerate(header["vars"]):
-            print(i, var)
+    if len(filelist) < 1:
+        print('No input files provided.')
+        print('Use -h/--help for usage information.')
         return
 
     header = read_gitm_header(filelist)

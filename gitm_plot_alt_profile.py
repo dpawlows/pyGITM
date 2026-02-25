@@ -13,6 +13,7 @@ from gitm_routines import *
 import sys
 
 rtod = 180.0/3.141592
+boltzmann = 1.380649e-23
 
 def get_args(argv):
     parser = argparse.ArgumentParser(add_help=False)
@@ -29,6 +30,7 @@ def get_args(argv):
     parser.add_argument('-minalt', type=float, default=90.0)
     parser.add_argument('-maxalt', type=float, default=280.0)
     parser.add_argument('-alog', dest='IsLog', action='store_true')
+    parser.add_argument('-pressure', dest='pressure', action='store_true')
     parser.add_argument('-h', '--help', dest='help', action='store_true')
 
     parsed_args = parser.parse_args(argv[1:])
@@ -64,6 +66,7 @@ if (args["help"]):
     print('   -minalt=min: minimum altitude (km) to plot')
     print('   -maxalt=max: maximum altitude (km) to plot')
     print('   -alog: plot the log of the variable')
+    print('   -pressure: calculate and plot pressure from neutral densities and temperature')
     print('   -diff=backgroundFiles: plot the difference between 2 sets of files')
     print('   Non-KW arg: files.')
 
@@ -102,10 +105,33 @@ if args['diff'] != '0':
         exit(1)
     bFile = backgroundFilelist[0]
 
-vars.extend([int(v) for v in args["var"].split(',')])
-Var = [header['vars'][int(i)] for i in args['var'].split(',')]
-nvars = len(args['var'].split(','))
-AllData = {a:[] for a in args['var'].split(',')}
+plot_keys = args['var'].split(',')
+if args['pressure']:
+    required_all_indices = list(range(4, 15)) + [15]
+    is_all_file = all(idx < len(header['vars']) for idx in required_all_indices)
+    if not is_all_file:
+        print('Pressure plotting requires an ALL file with variables 4-14 (densities) and 15 (Temperature).')
+        exit(1)
+    plot_keys = ['pressure']
+
+requested_vars = []
+if not args['pressure']:
+    requested_vars.extend([int(v) for v in plot_keys])
+else:
+    requested_vars.extend(list(range(4, 15)) + [15])
+
+vars.extend(requested_vars)
+vars = list(dict.fromkeys(vars))
+
+Var = []
+for key in plot_keys:
+    if key == 'pressure':
+        Var.append('Pressure (Pa)')
+    else:
+        Var.append(header['vars'][int(key)])
+
+nvars = len(plot_keys)
+AllData = {a:[] for a in plot_keys}
 AllData2D = []
 AllAlts = []
 AllSZA = []
@@ -138,12 +164,24 @@ if args['cut'] == 'loc':
     ilon = find_nearest_index(Lons,plon)
     ilat = find_nearest_index(Lats,plat)
 
-    for ivar in args['var'].split(','):
-        if diff:
+    for ivar in plot_keys:
+        if ivar == 'pressure':
+            number_density = np.zeros_like(data[15][ilon,ilat,ialt1:ialt2+1])
+            for idens in range(4, 15):
+                number_density = number_density + data[idens][ilon,ilat,ialt1:ialt2+1]
+            temp = number_density*boltzmann*data[15][ilon,ilat,ialt1:ialt2+1]
+            if diff:
+                b_number_density = np.zeros_like(background[15][ilon,ilat,ialt1:ialt2+1])
+                for idens in range(4, 15):
+                    b_number_density = b_number_density + background[idens][ilon,ilat,ialt1:ialt2+1]
+                btemp = b_number_density*boltzmann*background[15][ilon,ilat,ialt1:ialt2+1]
+                temp = (temp-btemp)/btemp*100.0
+
+        elif diff:
             temp = (data[int(ivar)][ilon,ilat,ialt1:ialt2+1]-background[int(ivar)][ilon,ilat,ialt1:ialt2+1])/ \
                 background[int(ivar)][ilon,ilat,ialt1:ialt2+1]*100.0
         else:
-            temp = data[int(ivar)][ilon,ilat,ialt1:ialt2+1]          
+            temp = data[int(ivar)][ilon,ilat,ialt1:ialt2+1]
 
         AllData[ivar].append(temp)
 
@@ -151,8 +189,22 @@ if args['cut'] == 'loc':
 if args['cut'] == 'sza':        
     AllSZA.append(data[iSZA][:,:,0])
     mask = (AllSZA[-1] >= smin) & (AllSZA[-1] <= smax ) 
-    for ivar in args['var'].split(','):
-        if diff:
+    for ivar in plot_keys:
+        if ivar == 'pressure':
+            number_density = np.zeros_like(data[15][:,:,ialt1:ialt2+1])
+            for idens in range(4, 15):
+                number_density = number_density + data[idens][:,:,ialt1:ialt2+1]
+            pressure = number_density*boltzmann*data[15][:,:,ialt1:ialt2+1]
+            temp = pressure[mask].mean(axis=0)
+            if diff:
+                b_number_density = np.zeros_like(background[15][:,:,ialt1:ialt2+1])
+                for idens in range(4, 15):
+                    b_number_density = b_number_density + background[idens][:,:,ialt1:ialt2+1]
+                bpressure = b_number_density*boltzmann*background[15][:,:,ialt1:ialt2+1]
+                mean2 = bpressure[mask].mean(axis=0)
+                temp = (temp-mean2)/mean2*100.
+
+        elif diff:
             #Calculate the mean of both sets of data and then calculate the percent difference.
             mean1 = data[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
             mean2 = background[int(ivar)][:,:,ialt1:ialt2+1][mask].mean(axis=0)
@@ -163,7 +215,7 @@ if args['cut'] == 'sza':
 
         AllData[ivar].append(temp)
 
-for ivar in args['var'].split(','):
+for ivar in plot_keys:
     AllData[ivar] = np.array(AllData[ivar])
 
 
@@ -182,7 +234,7 @@ if len(Var) == 1:
 else:
     marker = '.'
 
-for ivar in args['var'].split(','):
+for ivar in plot_keys:
     AllData1D = AllData[ivar][0]
     if (ivar == '3' and (not diff)) or args['IsLog']:
         mask = (AllData1D != 0.0) 
@@ -202,9 +254,12 @@ for ivar in args['var'].split(','):
     i+=1
 
 if len(Var) == 1:
-    svar = int(args['var'])
+    if plot_keys[0] == 'pressure':
+        svar = 98
+    else:
+        svar = int(plot_keys[0])
     if diff:
-        xlabel = '{}\n% Diff'.format(Var[i])
+        xlabel = '{}\n% Diff'.format(Var[0])
     else:
         xlabel = Var[0]
 else:

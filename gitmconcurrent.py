@@ -27,8 +27,14 @@ def _select_mode(smin, smax, zonal):
     if smin is not None and smax is not None:
         return "sza_average", None
     if isinstance(zonal, str):
-        if zonal.lower() == "subsolar":
+        zl = zonal.lower()
+
+        if zl == "subsolar":
             return "subsolar", None
+
+        if zl == "global":
+            return "zonal_mean", None   # <-- NEW MODE
+
         try:
             return "local_time_average", int(zonal)
         except ValueError:
@@ -154,6 +160,11 @@ def readMarsGITM(
                 ilat = np.argmin(np.abs(lat - timedata.solarDec))
                 result[v] = var[ilon, ilat, :]
 
+            elif mode == "zonal_mean":
+                # Average over longitude axis (axis=0)
+                # Preserve latitude and altitude
+                result[v] = np.nanmean(var, axis=0)
+
             else:
                 result.update({
                     "lon": lon,
@@ -176,8 +187,8 @@ def readMarsGITM(
         print(f"Error processing {file}: {e}")
         return None
 
-def zonal_fixed_ave(raw_results,zonal,lsBinWidth = None):
-    '''Perform zonal average at a fixed Mars location.'''
+def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
+    '''Perform average at a fixed Mars location.'''
 
     if not raw_results:
         return []
@@ -361,7 +372,7 @@ def process_batch(files, vars,smin=None,smax=None,zonal=False,lsBinWidth=None, o
                 total=len(files),desc="Processing files",unit="file"
                     ))
     if zonal:
-        return zonal_fixed_ave(raw_results,zonal,lsBinWidth=lsBinWidth)
+        return group_by_sol_average(raw_results,zonal,lsBinWidth=lsBinWidth)
 
 
     return [r for r in raw_results if r is not None]

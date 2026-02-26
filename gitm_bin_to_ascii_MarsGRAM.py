@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+# Switched from CubicSpine to interp1d(cubic) as we weren't using the full spline anyway so it is faster.
+
 from glob import glob
 import sys
 import numpy as np
@@ -110,7 +112,6 @@ def process_one_file(file, minalt, coordinates,header):
 
     gdLats = np.zeros((nLats-4, nAlts-ialtstart-2))
     gdAlts = np.zeros((nLats-4, nAlts-ialtstart-2))
-    
  
     if coordinates == 'geodetic':
         #Create the grid
@@ -134,19 +135,23 @@ def process_one_file(file, minalt, coordinates,header):
     newData = {k:np.zeros((nLons-4,nLats-4,nAlts-ialtstart-2)) for k in vars[3:]}
     newData['rho'] = np.zeros((nLons-4,nLats-4,nAlts-ialtstart-2))
     newData['pressure'] = np.zeros((nLons-4,nLats-4,nAlts-ialtstart-2))
-    
+    mass_array = np.array([masses[header['vars'][i]] * AMU for i in rhovars])
+
+
     for ilon in range(0,nLons - 4):
         for ialt in range(ialtstart,nAlts-2):
 
             X = gdLats[:,ialt-ialtstart] #We have data here
             #Do the interpolation- cubic spline in the horizontal direction for everything
             Y = gdLats[:,ialt-ialtstart]
+
             cs = CubicSpline(X,Y) 
             newLats = cs(newX)  #Latitude is weird. This is just a validation- newLats should equal newX. We want the grid to be regular.
 
             for var in vars[3:]:
                 Y = data[var][ilon+2,2:-2,ialt]
-                cs = CubicSpline(X,Y)
+                # cs = CubicSpline(X,Y)
+                cs = interp1d(X, Y, kind='cubic', bounds_error=False, fill_value="extrapolate")
                 newData[var][ilon,:,ialt-ialtstart] = cs(newX)
 
                 
@@ -180,25 +185,20 @@ def process_one_file(file, minalt, coordinates,header):
                             od = interp1d(X[imin-2:imin-2+len(Y)],Y,fill_value='extrapolate')
                             newData[var][ilon,imin,ialt-ialtstart] = 10**newX[imin-1:imin+2][1]
 
-                        # if (ilon == 10 and ialt >= 117):
-                        #     breakpoint(newData[var][ilon,imin,ialt-ialtstart])
+            densities = np.array([data[i][ilon+2, 2:-2, ialt] for i in rhovars])
 
-            rho = 0
-            numberDensity = 0
-            for i in rhovars:
-                ni = data[i][ilon+2,2:-2,ialt]   # number density
-                mi = masses[header['vars'][i]]  # amu
+            numberDensity = densities.sum(axis=0)
+            rho = (densities * mass_array[:, None]).sum(axis=0)
 
-                numberDensity += ni
-                rho += ni * mi * AMU
-
-            cs = CubicSpline(X,rho)
+            # cs = CubicSpline(X,rho)
+            cs = interp1d(X, rho, kind='cubic', bounds_error=False, fill_value="extrapolate")
             newData['rho'][ilon,:,ialt-ialtstart] = cs(newX)
 
             #calculate pressure; p = nkT
             pressure = boltzmann*numberDensity*data[15][ilon+2,2:-2:,ialt]
 
-            cs = CubicSpline(X,pressure)
+            # cs = CubicSpline(X,pressure)
+            cs = interp1d(X, pressure, kind='cubic', bounds_error=False, fill_value="extrapolate")
             newData['pressure'][ilon,:,ialt-ialtstart] = cs(newX)
 
     # Next, interpolate in the vertical
@@ -218,20 +218,24 @@ def process_one_file(file, minalt, coordinates,header):
             for var in vars[3:]:
                 if var not in logarithmic:
                     Y = newData[var][ilon,ilat,:]
-                    cs = CubicSpline(X,Y)
+                    # cs = CubicSpline(X,Y)
+                    cs = interp1d(X, Y, kind='cubic', bounds_error=False, fill_value="extrapolate")
                     gdData[var][ilon,ilat,:] = cs(altitudeGrid)
                 else:                        
                     Y = np.log(newData[var][ilon,ilat,:])
-                    cs = CubicSpline(X,Y)
+                    # cs = CubicSpline(X,Y)
+                    cs = interp1d(X, Y, kind='cubic', bounds_error=False, fill_value="extrapolate")
                     gdData[var][ilon,ilat,:] = np.exp(cs(altitudeGrid))
                  
-                Y = np.log(newData['rho'][ilon,ilat,:])
-                cs = CubicSpline(X,Y)
-                gdData['rho'][ilon,ilat,:] = np.exp(cs(altitudeGrid))
-                
-                Y = np.log(newData['pressure'][ilon,ilat,:])
-                cs = CubicSpline(X,Y)
-                gdData['pressure'][ilon,ilat,:] = np.exp(cs(altitudeGrid))
+            Y = np.log(newData['rho'][ilon,ilat,:])
+            # cs = CubicSpline(X,Y)
+            cs = interp1d(X, Y, kind='cubic', bounds_error=False, fill_value="extrapolate")
+            gdData['rho'][ilon,ilat,:] = np.exp(cs(altitudeGrid))
+            
+            Y = np.log(newData['pressure'][ilon,ilat,:])
+            # cs = CubicSpline(X,Y)
+            cs = interp1d(X, Y, kind='cubic', bounds_error=False, fill_value="extrapolate")
+            gdData['pressure'][ilon,ilat,:] = np.exp(cs(altitudeGrid))
 
 
     for ilon in range(totalLons):

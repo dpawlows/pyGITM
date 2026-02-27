@@ -479,9 +479,11 @@ name_dict = {"Altitude":"Altitude",
                      "[C]":"[C]",
                      }
 
-def clean_varname(varname):
 
-    cleanvar = (varname.strip().replace('$', '')
+def clean_varname(varname, netcdf_safe=False):
+
+    cleanvar = (varname.strip()
+                             .replace('$', '')
                              .replace('{', '')
                              .replace('}', '')
                              .replace('/', '')
@@ -492,6 +494,17 @@ def clean_varname(varname):
                              .replace("^","")
                              .replace('_',"")
     )
+
+    if netcdf_safe:
+        # Remove brackets
+        cleanvar = cleanvar.replace('[','').replace(']','')
+
+        # Remove any remaining illegal characters
+        cleanvar = re.sub(r'[^A-Za-z0-9_]', '', cleanvar)
+
+        # Ensure it starts with a letter
+        if not cleanvar or not cleanvar[0].isalpha():
+            cleanvar = "var_" + cleanvar
 
     return cleanvar
 

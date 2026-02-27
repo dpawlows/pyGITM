@@ -131,7 +131,14 @@ def main():
         times = np.array([entry['time'] for entry in data])
         ls_vals = np.array([getMarsSolarGeometry(t).ls for t in times])
 
-        lat = data[0]['lat']
+        lat = data[0].get('lat', None)
+        if lat is None:
+            # Subsolar or SZA mode there is no latitude dimension
+            lat = np.array([np.nan])
+            single_location = True
+        else:
+            single_location = False
+
         alt = data[0]['alt']
 
         # Find altitude indices
@@ -153,18 +160,13 @@ def main():
                     entry[var_idx][:, alt_indices]
                     for entry in data
                 ])
-            else:
-                # (alt,) → expand to (lat, alt) with NaNs
-                arr = np.array([
-                    np.full((len(lat), len(alt_indices)), np.nan)
-                    for _ in data
-                ])
 
-                for i, entry in enumerate(data):
-                    arr[i, :, :] = np.tile(
-                        entry[var_idx][alt_indices],
-                        (len(lat), 1)
-                    )
+            else:
+                # (alt,) → create latitude dimension of size 1
+                arr = np.array([
+                    entry[var_idx][alt_indices][None, :]
+                    for entry in data
+                ])
 
             var_arrays[var_name] = arr
 
@@ -184,38 +186,82 @@ def main():
 
     print("\nConstructing xarray Dataset...")
 
-    modes = list(DEFAULT_MODES.keys())
-    time_coord = mode_data[modes[0]]["time"]
-    latitude = mode_data[modes[0]]["lat"]
+    lat_modes = []
+    point_modes = []
+
+    for m in DEFAULT_MODES.keys():
+        sample = mode_data[m]["vars"][REQUIRED_VARS[0]]
+        if sample.shape[1] == 1:
+            point_modes.append(m)
+        else:
+            lat_modes.append(m)
+
+    reference_mode = lat_modes[0] if lat_modes else point_modes[0]
+    time_coord = mode_data[reference_mode]["time"]
+    if lat_modes:
+        latitude = mode_data[lat_modes[0]]["lat"]
+    else:
+        # Only point modes exist
+        latitude = np.array([np.nan])
     altitude = np.array(altitudes_km)
 
-    ds_vars = {}
+    ds_vars_lat = {}
 
     for var_name in REQUIRED_VARS:
+        clean_name = clean_varname(var_name, netcdf_safe=True)
 
         stacked = np.stack(
-            [mode_data[m]["vars"][var_name] for m in modes],
+            [mode_data[m]["vars"][var_name] for m in lat_modes],
             axis=-1
-        )  # shape (time, lat, alt, mode)
+        )
 
-        ds_vars[var_name] = (
-            ["time", "latitude", "altitude", "mode"],
+        ds_vars_lat[clean_name] = (
+            ["time", "latitude", "altitude", "mode_lat"],
+            stacked
+        )
+
+    for var_name in REQUIRED_VARS:
+        clean_name = clean_varname(var_name, netcdf_safe=True)
+
+        stacked = np.stack(
+            [mode_data[m]["vars"][var_name] for m in lat_modes],
+            axis=-1
+        )
+
+        ds_vars_lat[clean_name] = (
+            ["time", "latitude", "altitude", "mode_lat"],
+            stacked
+        )
+
+    ds_vars_point = {}
+
+    for var_name in REQUIRED_VARS:
+        stacked = np.stack(
+            [mode_data[m]["vars"][var_name][:, 0, :] for m in point_modes],
+            axis=-1
+        )
+        clean_name = clean_varname(var_name, netcdf_safe=True)
+
+        ds_vars_point[clean_name + "_point"] = (
+            ["time", "altitude", "mode_point"],
             stacked
         )
 
     ds = xr.Dataset(
-        data_vars=ds_vars,
-        coords=dict(
-            time=("time", time_coord),
-            Ls=("time", mode_data[modes[0]]["Ls"]),
-            latitude=("latitude", latitude),
-            altitude=("altitude", altitude),
-            mode=("mode", modes)
+    data_vars={**ds_vars_lat, **ds_vars_point},
+    coords=dict(
+        time=("time", time_coord),
+        Ls=("time", mode_data[reference_mode]["Ls"]),
+        latitude=("latitude", latitude),
+        altitude=("altitude", altitude),
+        mode_lat=("mode_lat", lat_modes),
+        mode_point=("mode_point", point_modes)
         ),
         attrs=dict(
             case_name=case_name,
             altitudes_km=str(altitudes_km),
-            modes=str(modes),
+            modes_lat=str(lat_modes),
+            modes_point=str(point_modes),
             created=time.strftime("%Y-%m-%d"),
             description="Annual M-GITM reduced dataset"
         )
@@ -234,7 +280,7 @@ def main():
         for var in ds.data_vars
     }
 
-    ds.to_netcdf(outfile, encoding=encoding)
+    ds.to_netcdf(outfile, engine="netcdf4", encoding=encoding)
 
     print("Done.")
 

@@ -67,17 +67,22 @@ def readMarsGITM(
         if file.endswith("bin"):
             data = gr.read_gitm_one_file(file, vars_to_read=vars)
 
-            alt = data[2][0, 0, :] / 1000.0
             data[0] *= rtod
             data[1] *= rtod
-
+            alt_in_meters = True
         else:
             data = gr.read_gitm_ascii_onefile(file, vars_to_read=vars)
             alt = data[2][0, 0, :]
+            alt_in_meters = False 
 
         data = _clean_varnames(data)
+        data = _strip_ghost_cells(data)
         lon = data[0][:, 0, 0]
         lat = data[1][0, :, 0]
+        alt = data[2][0, 0, :]
+        
+        if alt_in_meters:
+            alt = data[2][0, 0, :] / 1000.0
 
         # ---- Geometry ---------------------------------------------------
         timedata = marstiming.getMarsSolarGeometry(time)
@@ -110,7 +115,7 @@ def readMarsGITM(
             return result
 
         # ---- 3D case  --------------------------------------------
-        data = _strip_ghost_cells(data)
+
         mode, lt_target = _select_mode(smin, smax, zonal)
         half_width = 0.5
 
@@ -149,6 +154,7 @@ def readMarsGITM(
             elif mode == "local_time_average":
                 dlt = np.abs((local_time - lt_target + 12) % 24 - 12)
                 mask = dlt <= half_width
+                result['lat'] = lat
                 result[v] = (
                     np.nanmean(var[mask, :, :], axis=0)
                     if np.any(mask)
@@ -156,6 +162,7 @@ def readMarsGITM(
                 )
 
             elif mode == "subsolar":
+                result['lat'] = None
                 ilon = np.argmin(np.abs(lon - timedata.subSolarLon))
                 ilat = np.argmin(np.abs(lat - timedata.solarDec))
                 result[v] = var[ilon, ilat, :]
@@ -163,6 +170,7 @@ def readMarsGITM(
             elif mode == "zonal_mean":
                 # Average over longitude axis (axis=0)
                 # Preserve latitude and altitude
+                result['lat'] = lat
                 result[v] = np.nanmean(var, axis=0)
 
             else:
@@ -266,8 +274,7 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
 
             # Assume all entries have the same lat/lon/alt grids
             sample = entries[0]
-            breakpoint()
-            lat = sample['lat']
+            lat = sample.get('lat', None)
             alt = sample['alt']
 
             nalt = alt.size
@@ -275,10 +282,10 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
             vars_to_average = [k for k in sample.keys() if isinstance(k, int)]
 
             # Handle if lat is an array or a single value
-            if isinstance(lat, np.ndarray):
+            if lat is not None and isinstance(lat, np.ndarray):
                 nlat = lat.size
             else:
-                nlat = None  # single location case
+                nlat = None
 
             # Determine if the data is 1D or 2D
             var_sample = sample[vars_to_average[0]]
@@ -307,8 +314,8 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
                     counts[var_index][valid] += 1  
 
             # Build result for this Sol
-            sol_result = {'year':my,'sol': sol, 'lat': lat, 'alt': alt,'time': mean_time}
-            if isinstance(lat, np.ndarray):
+            sol_result = {'year': my,'sol': sol,'alt': alt,'time': mean_time}
+            if lat is not None:
                 sol_result['lat'] = lat
 
             for var_index in vars_to_average:

@@ -266,6 +266,7 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
 
             # Assume all entries have the same lat/lon/alt grids
             sample = entries[0]
+            breakpoint()
             lat = sample['lat']
             alt = sample['alt']
 

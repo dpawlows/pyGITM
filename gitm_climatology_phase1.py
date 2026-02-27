@@ -69,6 +69,12 @@ def parse_args():
         help="Output NetCDF filename (optional)"
     )
 
+    parser.add_argument(
+        "-serial",
+        action="store_true",
+        help="Run process_batch serially (debug mode)"
+    )
+
     return parser.parse_args()
 
 
@@ -84,6 +90,7 @@ def main():
     altitudes_km = args.alts
     case_name = args.case
     max_workers = args.workers
+    serial = args.serial
 
     print(f"\nCase: {case_name}")
     print(f"Altitudes: {altitudes_km}")
@@ -117,7 +124,8 @@ def main():
             zonal=zonal,
             smin=smin,
             smax=smax,
-            verbose=False
+            verbose=False,
+            serial=serial
         )
 
         times = np.array([entry['time'] for entry in data])

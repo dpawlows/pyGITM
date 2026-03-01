@@ -220,19 +220,6 @@ def main():
             stacked
         )
 
-    for var_name in REQUIRED_VARS:
-        clean_name = clean_varname(var_name, netcdf_safe=True)
-
-        stacked = np.stack(
-            [mode_data[m]["vars"][var_name] for m in lat_modes],
-            axis=-1
-        )
-
-        ds_vars_lat[clean_name] = (
-            ["time", "latitude", "altitude", "mode_lat"],
-            stacked
-        )
-
     ds_vars_point = {}
 
     for var_name in REQUIRED_VARS:

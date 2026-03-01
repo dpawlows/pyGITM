@@ -246,7 +246,7 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
         grouped_by_yearsol = defaultdict(list)
         prev_sol = None
         prev_year = None
-
+        prev_time = None
         for entry in raw_results:
             if entry is not None:
                 my = int(entry['year'])
@@ -256,13 +256,14 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
                     if sol < 1 and prev_sol > 660:
                         if my <= prev_year:
                             print(f"[WARNING] Sol reset detected without Mars Year increment:")
-                            print(f"  Previous: MY={prev_year}, Sol={prev_sol}, time={entry['time']}")
+                            print(f"  Previous: MY={prev_year}, Sol={prev_sol}, time={prev_time}")
                             print(f"  Current:  MY={my}, Sol={sol}, time={entry['time']}")
                             breakpoint()
 
             grouped_by_yearsol[(my, sol)].append(entry)
             prev_sol = sol
             prev_year = my
+            prev_time = entry['time']
 
 
         results = []

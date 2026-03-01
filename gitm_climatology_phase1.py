@@ -15,12 +15,13 @@ from marstiming import getMarsSolarGeometry
 DEFAULT_ALTITUDES = [100, 135, 150, 200]
 
 DEFAULT_MODES = {
-    "global": dict(zonal="global"),
-    "lt04": dict(zonal="4"),
-    "lt14": dict(zonal="14"),
-    "subsolar": dict(zonal="subsolar"),
-    "sza_day": dict(zonal="sza", smin=0, smax=30),
-    "sza_night": dict(zonal="sza", smin=150, smax=180),
+    "global": dict(zonal="global", point=False),
+    "lt04": dict(zonal="4",point=False),
+    "lt14": dict(zonal="14",point=False),
+    "subsolar": dict(zonal="subsolar",point=True),
+    "sza_day": dict(zonal="sza", smin=0, smax=30,point=True),
+    "sza_night": dict(zonal="sza", smin=150, smax=180,point=True),
+
 }
 
 REQUIRED_VARS = [
@@ -105,6 +106,8 @@ def main():
             raise ValueError(f"Variable '{name}' not found in header.")
         var_indices.append(header['vars'].index(name))
 
+    # the gitm reader returns entries keyed by the original header index, not by position
+    # thus we use var_indices directly
     vars_for_read = [0,1,2] + var_indices
 
     mode_data = {}
@@ -186,15 +189,9 @@ def main():
 
     print("\nConstructing xarray Dataset...")
 
-    lat_modes = []
-    point_modes = []
+    lat_modes   = [m for m, cfg in DEFAULT_MODES.items() if not cfg["point"]]
+    point_modes = [m for m, cfg in DEFAULT_MODES.items() if cfg["point"]]
 
-    for m in DEFAULT_MODES.keys():
-        sample = mode_data[m]["vars"][REQUIRED_VARS[0]]
-        if sample.shape[1] == 1:
-            point_modes.append(m)
-        else:
-            lat_modes.append(m)
 
     reference_mode = lat_modes[0] if lat_modes else point_modes[0]
     time_coord = mode_data[reference_mode]["time"]
@@ -234,25 +231,36 @@ def main():
             stacked
         )
 
-    ds = xr.Dataset(
-    data_vars={**ds_vars_lat, **ds_vars_point},
-    coords=dict(
-        time=("time", time_coord),
-        Ls=("time", mode_data[reference_mode]["Ls"]),
-        latitude=("latitude", latitude),
-        altitude=("altitude", altitude),
-        mode_lat=("mode_lat", lat_modes),
-        mode_point=("mode_point", point_modes)
-        ),
-        attrs=dict(
-            case_name=case_name,
+
+    ds_lat = xr.Dataset(
+        data_vars=ds_vars_lat,
+        coords=dict(
+            time=("time", time_coord),
+            Ls=("time", mode_data[reference_mode]["Ls"]),
+            latitude=("latitude", latitude),
+            altitude=("altitude", altitude),
+            mode_lat=("mode_lat", lat_modes),
+        )
+    )
+
+    ds_point = xr.Dataset(
+        data_vars=ds_vars_point,
+        coords=dict(
+            time=("time", time_coord),
+            altitude=("altitude", altitude),
+            mode_point=("mode_point", point_modes),
+        )
+    )
+
+    ds = xr.merge([ds_lat, ds_point])
+    ds.attrs = dict(case_name=case_name,
             altitudes_km=str(altitudes_km),
             modes_lat=str(lat_modes),
             modes_point=str(point_modes),
             created=time.strftime("%Y-%m-%d"),
             description="Annual M-GITM reduced dataset"
-        )
-    )
+            )
+
 
     # --------------------------------------------------
     # Save

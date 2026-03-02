@@ -211,7 +211,6 @@ def main():
             "lat": lat,
             "nfiles": nfiles,
         }
-        breakpoint()
 
         del data
         gc.collect()

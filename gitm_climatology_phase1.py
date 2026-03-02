@@ -282,7 +282,7 @@ def main():
             Ls=("time", mode_data[reference_mode]["Ls"]),
             year=("time", mode_data[reference_mode]["year"]),
             sol=("time", mode_data[reference_mode]["sol"]),
-            nfiles=("time",mode_data[reference_mode]["nfiles"])
+            nfiles=("time",mode_data[reference_mode]["nfiles"]),
             latitude=("latitude", latitude),
             altitude=("altitude", altitude),
             mode_lat=("mode_lat", lat_modes),

@@ -196,18 +196,27 @@ def readMarsGITM(
         return None
 
 def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
-    '''Perform average at a fixed Mars location.'''
+    '''Perform average over several files. Defaults to 1 Sol, but an Ls bin can be used instead.'''
 
     if not raw_results:
         return []
 
     if lsBinWidth is not None:
         # Bin by Ls
-        binned = defaultdict(lambda: {'count': 0, 'times':[]})
+        binned = defaultdict(lambda: {
+            'count': 0,
+            'times': [],
+            'years': [],
+            'sols': [],
+            'ls_vals': [],
+        })
         for result in raw_results:
             if result is None: continue
             ls_bin = result['ls_bin']
             binned[ls_bin]['times'].append(result['time'])
+            binned[ls_bin]['years'].append(result['year'])
+            binned[ls_bin]['sols'].append(result['sol'])
+            binned[ls_bin]['ls_vals'].append(result['Ls'])
 
             if 'alt' not in binned[ls_bin]:
                 binned[ls_bin]['alt'] = result['alt']
@@ -230,7 +239,14 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
                 timestamps = [t.timestamp() for t in bin_data['times']]
                 mean_time = datetime.fromtimestamp(np.mean(timestamps))
 
-            entry = {'ls': ls_bin, 'alt': bin_data['alt'],'time':mean_time}
+            entry = { 
+            'alt': bin_data['alt'],
+            'time':mean_time,
+            'year': bin_data['years'][0],
+            'sol': bin_data['sols'][0],
+            'Ls': ls_bin,
+            'nfiles':bin_data['count'],
+            }
             if 'lat' in bin_data:
                 entry['lat'] = bin_data['lat']
             
@@ -250,8 +266,8 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
         for entry in raw_results:
             if entry is not None:
                 my = int(entry['year'])
-                sol = int(entry['sol'])
-                 # Check for wrap-around in sol without year increment
+                sol = int(entry['sol'])                
+                # Check for wrap-around in sol without year increment
                 if prev_sol is not None and prev_year is not None:
                     if sol < 1 and prev_sol > 660:
                         if my <= prev_year:
@@ -315,7 +331,14 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
                     counts[var_index][valid] += 1  
 
             # Build result for this Sol
-            sol_result = {'year': my,'sol': sol,'alt': alt,'time': mean_time}
+            sol_result = {'year': my,
+                'sol': sol,
+                'alt': alt,
+                'time': mean_time,
+                'Ls': np.mean([entry['Ls'] for entry in entries]),
+                'nfiles':len(entries),
+            }
+
             if lat is not None:
                 sol_result['lat'] = lat
 
@@ -332,13 +355,15 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
     return results
 
 
-def process_batch(files, vars,smin=None,smax=None,zonal=False,lsBinWidth=None, oco2=False,max_workers=None,
+def process_batch(files, vars,smin=None,smax=None,zonal=False,average=False,lsBinWidth=None, oco2=False,max_workers=None,
     verbose=False,serial=False):
     """Function to process a batch of files in parallel."""
     
     if len(vars) < 4:
         raise ValueError("Expected at least 4 variable indices: lon, lat, alt, and 1+ data var")
-
+    
+    if average == "ls" and lsBinWidth is None:
+        raise ValueError("lsBinWidth must be set when average='ls'")
     reader = partial(readMarsGITM, vars=vars, smin=smin, smax=smax,zonal=zonal,lsBinWidth=lsBinWidth,oco2=oco2,
         verbose=verbose)
 
@@ -380,11 +405,15 @@ def process_batch(files, vars,smin=None,smax=None,zonal=False,lsBinWidth=None, o
             raw_results = list(tqdm(executor.map(reader,files,chunksize=8),
                 total=len(files),desc="Processing files",unit="file"
                     ))
-    if zonal:
-        return group_by_sol_average(raw_results,zonal,lsBinWidth=lsBinWidth)
+
+    if average == "sol":
+        return group_by_sol_average(raw_results, zonal)
+    elif average == "ls":
+        return group_by_sol_average(raw_results, zonal, lsBinWidth=lsBinWidth)
+    else:
+        return [r for r in raw_results if r is not None]
 
 
-    return [r for r in raw_results if r is not None]
 
 
     

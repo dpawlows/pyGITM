@@ -76,6 +76,21 @@ def parse_args():
         help="Run process_batch serially (debug mode)"
     )
 
+    parser.add_argument(
+        "-average",
+        type=str,
+        default=None,
+        choices=["sol", "ls", "none"],
+        help="Averaging mode: 'sol' for sol averaging, 'ls' for Ls bin averaging, 'none' for no averaging."
+    )
+
+    parser.add_argument(
+        "-lsBinWidth",
+        type=float,
+        default=None,
+        help="Ls bin width for averaging. If None, average by sol."
+    )
+
     return parser.parse_args()
 
 
@@ -120,6 +135,8 @@ def main():
         smin = mode_config.get("smin", None)
         smax = mode_config.get("smax", None)
 
+        average = mode_config.get("average",False)
+
         data = process_batch(
             files,
             vars_for_read,
@@ -128,11 +145,23 @@ def main():
             smin=smin,
             smax=smax,
             verbose=False,
-            serial=serial
+            serial=serial,
+            average=args.average,
+            lsBinWidth=args.lsBinWidth,
         )
 
-        times = np.array([entry['time'] for entry in data])
-        ls_vals = np.array([getMarsSolarGeometry(t).ls for t in times])
+        times, ls_vals, years, sols, nfiles = [], [], [], [], []
+        for entry in data:
+            times.append(entry['time'])
+            ls_vals.append(entry['Ls']) 
+            years.append(entry['year'])
+            sols.append(entry['sol'])
+            nfiles.append(entry['nfiles'])
+        times   = np.array(times)
+        ls_vals = np.array(ls_vals)
+        years   = np.array(years)
+        sols    = np.array(sols)
+        nfiles = np.array(nfiles)
 
         lat = data[0].get('lat', None)
         if lat is None:
@@ -177,7 +206,10 @@ def main():
             "vars": var_arrays,
             "time": times,
             "Ls": ls_vals,
-            "lat": lat
+            "year": years,
+            "sol": sols,
+            "lat": lat,
+            "nfiles": nfiles,
         }
 
         del data
@@ -194,6 +226,16 @@ def main():
 
 
     reference_mode = lat_modes[0] if lat_modes else point_modes[0]
+    expected = np.median(mode_data[reference_mode]["nfiles"])
+    
+    # Quick check to make sure there aren't any data that were averaged with low counts
+    if args.average in ("sol", "ls"):
+        low_count_threshold = expected * 0.5
+        low = mode_data[reference_mode]["nfiles"] < low_count_threshold
+        if np.any(low):
+            print(f"[WARNING] {np.sum(low)} time steps have fewer than {low_count_threshold:.0f} files")
+            print(f"  Min count: {mode_data[reference_mode]['nfiles'].min()}")
+
     time_coord = mode_data[reference_mode]["time"]
     if lat_modes:
         latitude = mode_data[lat_modes[0]]["lat"]
@@ -237,6 +279,8 @@ def main():
         coords=dict(
             time=("time", time_coord),
             Ls=("time", mode_data[reference_mode]["Ls"]),
+            year=("time", mode_data[reference_mode]["year"]),
+            sol=("time", mode_data[reference_mode]["sol"]),
             latitude=("latitude", latitude),
             altitude=("altitude", altitude),
             mode_lat=("mode_lat", lat_modes),
@@ -257,6 +301,8 @@ def main():
             altitudes_km=str(altitudes_km),
             modes_lat=str(lat_modes),
             modes_point=str(point_modes),
+            average=str(args.average),
+            lsBinWidth=str(args.lsBinWidth),
             created=time.strftime("%Y-%m-%d"),
             description="Annual M-GITM reduced dataset"
             )

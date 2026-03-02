@@ -126,6 +126,9 @@ def main():
 
     ds = xr.open_dataset(args.ncfile)
 
+    low = ds.nfiles.values < np.median(ds.nfiles.values) * 0.5
+    print(f"Low count at Ls: {ds.Ls.values[low]}")
+
     varname = args.var
     mode = args.mode
     altitude = args.alt

@@ -11,6 +11,7 @@ from functools import partial
 import multiprocessing
 import gc
 
+
 rtod = 180/np.pi
 deg_to_hours = 1/15.0
 def _time_from_filename(file):
@@ -238,12 +239,13 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
             if len(bin_data['times']) > 1:
                 timestamps = [t.timestamp() for t in bin_data['times']]
                 mean_time = datetime.fromtimestamp(np.mean(timestamps))
-
+    
+            mean_timedata = marstiming.getMarsSolarGeometry(mean_time)
             entry = { 
             'alt': bin_data['alt'],
             'time':mean_time,
-            'year': bin_data['years'][0],
-            'sol': bin_data['sols'][0],
+            'year': mean_timedata.year, #recompute so we are consistent
+            'sol': mean_timedata.sol,
             'Ls': ls_bin,
             'nfiles':bin_data['count'],
             }
@@ -254,6 +256,8 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
                 if isinstance(k, int):
                     entry[k] = bin_data[k]
             final_data.append(entry)
+
+        final_data = sorted(final_data, key=lambda x: x['time'])
         return final_data
 
     else:

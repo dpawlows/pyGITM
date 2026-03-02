@@ -144,6 +144,7 @@ def main():
 
     if ds.average is not None:
         low = ds.nfiles.values < np.median(ds.nfiles.values) * 0.5
+        n = len(ds.nfiles.values)
         edge_threshold = 1  # number of bins from the edge to consider "boundary"
 
         low_indices = np.where(low)[0]

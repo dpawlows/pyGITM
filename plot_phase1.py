@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
 import argparse
+import numpy as np
 import sys
 import xarray as xr
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import matplotlib.ticker as ticker
 import marstiming
 import matplotlib as mpl
 
@@ -50,6 +52,20 @@ def parse_args():
         type=float,
         default=None,
         help="Maximum value for color scale"
+    )
+
+    parser.add_argument(
+        "-lsmin",
+        type=float,
+        default=None,
+        help="Minimum Ls for x-axis"
+    )
+
+    parser.add_argument(
+        "-lsmax",
+        type=float,
+        default=None,
+        help="Maximum Ls for x-axis"
     )
     parser.add_argument("-h", "--help", action="store_true",
                         help="Show help or dataset info")
@@ -126,8 +142,18 @@ def main():
 
     ds = xr.open_dataset(args.ncfile)
 
-    low = ds.nfiles.values < np.median(ds.nfiles.values) * 0.5
-    print(f"Low count at Ls: {ds.Ls.values[low]}")
+    if ds.average is not None:
+        low = ds.nfiles.values < np.median(ds.nfiles.values) * 0.5
+        edge_threshold = 1  # number of bins from the edge to consider "boundary"
+
+        low_indices = np.where(low)[0]
+        edge_lows = [i for i in low_indices if i < edge_threshold or i > n - edge_threshold - 1]
+        interior_lows = [i for i in low_indices if i not in edge_lows]
+
+        if edge_lows:
+            print(f"Low count at boundary Ls (expected): {ds.Ls.values[edge_lows]}")
+        if interior_lows:
+            print(f"[WARNING] Low count at interior Ls (possible gap): {ds.Ls.values[interior_lows]}")
 
     varname = args.var
     mode = args.mode
@@ -146,6 +172,11 @@ def main():
 
     da = da.sel(altitude=args.alt)
 
+    ls = ds.Ls.values.copy()
+    wrap_indices = np.where(np.diff(ls) < -180)[0]
+    for w in wrap_indices:
+        ls[w+1:] += 360
+
     # ------------------------------------------------------------
     # LATITUDE-DEPENDENT MODES
     # ------------------------------------------------------------
@@ -163,7 +194,7 @@ def main():
         da_mean = da.mean("latitude")
 
         axes[0].plot(
-            ds.Ls.values,
+            ls,
             da_mean.values,
             label='Latitude average'
         )
@@ -179,13 +210,21 @@ def main():
             vmax = None
         # --- Bottom panel: latitude vs Ls ---
         im = axes[1].pcolormesh(
-            ds.Ls.values,
+            ls,
             ds.latitude.values,
             da.T,
             shading="auto",
             vmin=vmin,
             vmax=vmax
         )
+        axes[1].xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x % 360:.0f}"))
+        axes[0].xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x % 360:.0f}"))
+
+        if args.lsmin is not None or args.lsmax is not None:
+            lsmin = args.lsmin if args.lsmin is not None else ls.min()
+            lsmax = args.lsmax if args.lsmax is not None else ls.max()
+            axes[0].set_xlim(lsmin, lsmax)
+            axes[1].set_xlim(lsmin, lsmax)
 
         axes[1].set_ylabel("Latitude")
         axes[1].set_xlabel("Solar Longitude (Ls)")
@@ -196,10 +235,14 @@ def main():
         # ------------------------------------------------------------
         # POINT MODES
         # ------------------------------------------------------------
-        ax.plot(ds.Ls.values, da.values, label=mode)
+        ax.plot(ls, da.values, label=mode)
         ax.set_ylabel(varname)
         ax.set_xlabel("Solar Longitude (Ls)")
-        # ax.set_title(f"{mode} at {altitude} km")
+
+        if args.lsmin is not None or args.lsmax is not None:
+            lsmin = args.lsmin if args.lsmin is not None else ls.min()
+            lsmax = args.lsmax if args.lsmax is not None else ls.max()
+            ax.set_xlim(lsmin, lsmax)
 
 
 

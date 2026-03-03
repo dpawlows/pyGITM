@@ -207,34 +207,36 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
         binned = defaultdict(lambda: {
             'count': 0,
             'times': [],
-            'years': [],
             'sols': [],
             'ls_vals': [],
         })
         for result in raw_results:
             if result is None: continue
-            ls_bin = result['ls_bin']
-            binned[ls_bin]['times'].append(result['time'])
-            binned[ls_bin]['years'].append(result['year'])
-            binned[ls_bin]['sols'].append(result['sol'])
-            binned[ls_bin]['ls_vals'].append(result['Ls'])
+            #ls_bin = result['ls_bin']
+            ls_bin = int(result['Ls'] // lsBinWidth) * lsBinWidth
+            year_bin = result['year']
+            key = (year_bin, ls_bin)
+            
+            binned[key]['times'].append(result['time'])
+            binned[key]['ls_vals'].append(result['Ls'])
+            binned[key]['sols'].append(result['sol'])
+            binned[key]['count'] += 1
 
-            if 'alt' not in binned[ls_bin]:
-                binned[ls_bin]['alt'] = result['alt']
-            if 'lat' not in binned[ls_bin] and 'lat' in result:
-                binned[ls_bin]['lat'] = result['lat']
+            if 'alt' not in binned[key]:
+                binned[key]['alt'] = result['alt']
+            if 'lat' not in binned[key] and 'lat' in result:
+                binned[key]['lat'] = result['lat']
 
             for k, v in result.items():
                 if isinstance(k, int):
-                    if k not in binned[ls_bin]:
-                        binned[ls_bin][k] = np.array(v, dtype=float)
+                    if k not in binned[key]:
+                        binned[key][k] = np.array(v, dtype=float)
                     else:
-                        binned[ls_bin][k] += (v - binned[ls_bin][k]) / (binned[ls_bin]['count'] + 1)
-            binned[ls_bin]['count'] += 1
+                        binned[key][k] += (v - binned[key][k]) / (binned[key]['count'] + 1)
 
         # Sort and convert to list
         final_data = []
-        for ls_bin, bin_data in sorted(binned.items()):
+        for (year_bin,ls_bin), bin_data in sorted(binned.items()):
             mean_time = bin_data['times'][0]
             if len(bin_data['times']) > 1:
                 timestamps = [t.timestamp() for t in bin_data['times']]
@@ -244,11 +246,12 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
             entry = { 
             'alt': bin_data['alt'],
             'time':mean_time,
-            'year': mean_timedata.year, #recompute so we are consistent
+            'year': year_bin, #mean_timedata.year, #recompute so we are consistent
             'sol': mean_timedata.sol,
             'Ls': ls_bin,
             'nfiles':bin_data['count'],
             }
+
             if 'lat' in bin_data:
                 entry['lat'] = bin_data['lat']
             
@@ -257,7 +260,8 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
                     entry[k] = bin_data[k]
             final_data.append(entry)
 
-        final_data = sorted(final_data, key=lambda x: x['time'])
+        #sorted(final_data, key=lambda x: x['time'])
+        
         return final_data
 
     else:
@@ -352,7 +356,7 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
                     avg[counts[var_index] == 0] = np.nan
 
                 sol_result[var_index] = avg
-
+                
             results.append(sol_result)
 
 

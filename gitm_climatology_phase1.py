@@ -211,7 +211,7 @@ def main():
             "lat": lat,
             "nfiles": nfiles,
         }
-
+        
         del data
         gc.collect()
 

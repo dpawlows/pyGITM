@@ -236,9 +236,13 @@ def main():
         # ------------------------------------------------------------
         # POINT MODES
         # ------------------------------------------------------------
-        ax.plot(ls, da.values, label=mode)
-        ax.set_ylabel(varname)
-        ax.set_xlabel("Solar Longitude (Ls)")
+        
+        fig, axes = plt.subplots(
+            1, 1,
+            figsize=(10, 4),constrained_layout=True,)
+        axes.plot(ls, da.values, label=mode)
+        axes.set_ylabel(varname)
+        axes.set_xlabel("Solar Longitude (Ls)")
 
         if args.lsmin is not None or args.lsmax is not None:
             lsmin = args.lsmin if args.lsmin is not None else ls.min()
@@ -246,14 +250,13 @@ def main():
             ax.set_xlim(lsmin, lsmax)
 
 
-
+    
     if args.show:
         plt.show()
     else:
         outfile = f"{varname}_{mode}_{int(altitude)}km.png"
         plt.savefig(outfile, dpi=150)
         print(f"\nSaved: {outfile}")
-
 
 if __name__ == "__main__":
     main()

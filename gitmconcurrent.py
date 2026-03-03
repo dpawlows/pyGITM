@@ -212,7 +212,6 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
         })
         for result in raw_results:
             if result is None: continue
-            #ls_bin = result['ls_bin']
             ls_bin = int(result['Ls'] // lsBinWidth) * lsBinWidth
             year_bin = result['year']
             key = (year_bin, ls_bin)
@@ -260,8 +259,7 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
                     entry[k] = bin_data[k]
             final_data.append(entry)
 
-        #sorted(final_data, key=lambda x: x['time'])
-        
+  
         return final_data
 
     else:
@@ -356,7 +354,7 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
                     avg[counts[var_index] == 0] = np.nan
 
                 sol_result[var_index] = avg
-                
+
             results.append(sol_result)
 
 

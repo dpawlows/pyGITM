@@ -480,6 +480,81 @@ name_dict = {"Altitude":"Altitude",
                      }
 
 
+units_dict = {
+    # Temperatures
+    "Temperature":  "K",
+    "eTemperature": "K",
+    "iTemperature": "K",
+    # Number densities — bracket/raw GITM names
+    "[O]":           "m$^{-3}$",
+    "[O2]":          "m$^{-3}$",
+    "[O!D2!N]":      "m$^{-3}$",
+    "[CO2]":         "m$^{-3}$",
+    "[CO!D2!N]":     "m$^{-3}$",
+    "[N2]":          "m$^{-3}$",
+    "[N!D2!N]":      "m$^{-3}$",
+    "[Ar]":          "m$^{-3}$",
+    "[NO]":          "m$^{-3}$",
+    "[CO]":          "m$^{-3}$",
+    "[N]":           "m$^{-3}$",
+    "[H]":           "m$^{-3}$",
+    "[He]":          "m$^{-3}$",
+    "[C]":           "m$^{-3}$",
+    "[e-]":          "m$^{-3}$",
+    "[O+]":          "m$^{-3}$",
+    "[O!U+!N]":      "m$^{-3}$",
+    "[O2+]":         "m$^{-3}$",
+    "[O!D2!U+!N]":   "m$^{-3}$",
+    "[CO2+]":        "m$^{-3}$",
+    "[CO!D2!U+!N]":  "m$^{-3}$",
+    "[NO+]":         "m$^{-3}$",
+    "[NO!U+!N]":     "m$^{-3}$",
+    # Number densities — netcdf-safe names (no brackets, no special chars)
+    "O":             "m$^{-3}$",
+    "O2":            "m$^{-3}$",
+    "CO2":           "m$^{-3}$",
+    "N2":            "m$^{-3}$",
+    "Ar":            "m$^{-3}$",
+    "NO":            "m$^{-3}$",
+    "CO":            "m$^{-3}$",
+    "N":             "m$^{-3}$",
+    "H":             "m$^{-3}$",
+    "He":            "m$^{-3}$",
+    "C":             "m$^{-3}$",
+    "Op":            "m$^{-3}$",
+    "O2p":           "m$^{-3}$",
+    "CO2p":          "m$^{-3}$",
+    "NOp":           "m$^{-3}$",
+    "COp":           "m$^{-3}$",
+    "Cp":            "m$^{-3}$",
+    # Winds
+    "V!Dn!N(east)":  "m/s",
+    "V!Dn!N(north)": "m/s",
+    "V!Dn!N(up)":    "m/s",
+    "V!Di!N (east)": "m/s",
+    "V!Di!N(north)": "m/s",
+    "V!Di!N(up)":    "m/s",
+}
+
+
+def get_units(varname):
+    """Return a units string for a variable name, or '' if unknown.
+
+    Checks the units_dict for an exact match first, then falls back to
+    pattern matching on the variable name.
+    """
+    if varname in units_dict:
+        return units_dict[varname]
+    vl = varname.lower()
+    if "temperature" in vl:
+        return "K"
+    if re.match(r'^\[.+\]', varname):   # bracket-enclosed species → number density
+        return "m$^{-3}$"
+    if "v!d" in vl or "wind" in vl or re.match(r'^v[ni][a-z]', vl):
+        return "m/s"
+    return ""
+
+
 def clean_varname(varname, netcdf_safe=False):
 
     cleanvar = (varname.strip()

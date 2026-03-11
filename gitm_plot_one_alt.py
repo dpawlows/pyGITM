@@ -203,6 +203,11 @@ AllTimes = []
 j = 0
 for file in filelist:
     data = read_gitm_one_file(file, vars)
+    data = read_gitm_one_file(file, vars)
+    print("Data shape:", data[args["var"]].shape)
+    print("Min/Max:", np.nanmin(data[args["var"]]), np.nanmax(data[args["var"]]))
+    print("NaN count:", np.sum(np.isnan(data[args["var"]])))
+    print("Inf count:", np.sum(np.isinf(data[args["var"]])))
     if (j == 0):
         [nLons, nLats, nAlts] = data[0].shape
         Alts = data[2][0][0]/1000.0;
@@ -212,15 +217,12 @@ for file in filelist:
             xPos = Lons
             yPos = Lats
             if (len(Alts) > 1):
-                if (args["alt"] < 50):
-                    iAlt = args["alt"]
+                if (args["alt"] > Alts[nAlts-3]):
+                    iAlt = nAlts-3
                 else:
-                    if (args["alt"] > Alts[nAlts-3]):
-                        iAlt = nAlts-3
-                    else:
-                        iAlt = 2
-                        while (Alts[iAlt] < args["alt"]):
-                            iAlt=iAlt+1
+                    iAlt = 2
+                    while (Alts[iAlt] < args["alt"]):
+                        iAlt=iAlt+1
             else:
                 iAlt = 0
             Alt = Alts[iAlt]

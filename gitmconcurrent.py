@@ -33,6 +33,9 @@ def _select_mode(smin, smax, zonal):
         if zl == "subsolar":
             return "subsolar", None
 
+        if zl == "antisolar":
+            return "antisolar", None
+
         if zl == "global":
             return "zonal_mean", None   # <-- NEW MODE
 
@@ -166,6 +169,14 @@ def readMarsGITM(
                 result['lat'] = None
                 ilon = np.argmin(np.abs(lon - timedata.subSolarLon))
                 ilat = np.argmin(np.abs(lat - timedata.solarDec))
+                result[v] = var[ilon, ilat, :]
+
+            elif mode == "antisolar":
+                result['lat'] = None
+                anti_lon = (timedata.subSolarLon + 180) % 360
+                anti_lat = -timedata.solarDec
+                ilon = np.argmin(np.abs(lon - anti_lon))
+                ilat = np.argmin(np.abs(lat - anti_lat))
                 result[v] = var[ilon, ilat, :]
 
             elif mode == "zonal_mean":

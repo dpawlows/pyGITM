@@ -19,6 +19,7 @@ DEFAULT_MODES = {
     "lt04": dict(zonal="4",point=False),
     "lt14": dict(zonal="14",point=False),
     "subsolar": dict(zonal="subsolar",point=True),
+    "antisolar": dict(zonal="antisolar",point=True),
     "sza_day": dict(zonal="sza", smin=0, smax=30,point=True),
     "sza_night": dict(zonal="sza", smin=150, smax=180,point=True),
 

@@ -89,7 +89,7 @@ elif args['cut'] == 'sza' and args['smin'] > -50:
 elif args['cut'] == 'lt' and args['lat'] > -91:
     plat = args['lat']
 else:
-    args["help"] = '-h'    
+    args["help"] = '-h'
 
 if args['cut'] == 'lt' and args['alt'] > 0:
     lineplot = True
@@ -167,6 +167,7 @@ if args['diff'] != '0':
         print('Difference between sizes of perturbation and background filelists:')
         print('Lengths: {}   {}'.format(nFiles,nBackFiles))
         exit(1)
+
 
 
 vars.extend([int(v) for v in args["var"].split(',')])

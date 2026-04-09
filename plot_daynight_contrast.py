@@ -201,7 +201,6 @@ def load_contrasts(filename, varnames, alts_sorted):
             contrasts[varname][alt] = contrast
             absolutes[varname][alt] = diff
             pctdiffs[varname][alt]  = diff / x_night * 100.0
-
             print(f"  {os.path.basename(filename)}  {varname:>14}  {int(alt):>4} km  "
                   f"mean={np.nanmean(contrast):>8.4f}  "
                   f"min={np.nanmin(contrast):>8.4f}  "

@@ -147,13 +147,22 @@ def readMarsGITM(
             var = data[v]
 
             if mode == "sza_average":
-                prof = [
-                    np.nanmean(var[:, :, k][(sza >= smin) & (sza <= smax)])
-                    if np.any((sza >= smin) & (sza <= smax))
-                    else np.nan
-                    for k in range(len(alt))
-                ]
+                # Cosine-latitude area weighting to avoid sampling bias
+                cos_lat = np.cos(np.deg2rad(data[1][0, :, 0]))  # shape (nlat,)
+                cos_lat_2d = np.broadcast_to(cos_lat[np.newaxis, :], sza.shape)  # (nlon, nlat)
+                
+                mask = (sza >= smin) & (sza <= smax)
+                prof = []
+                for k in range(len(alt)):
+                    w = cos_lat_2d[mask]
+                    v_vals = var[:, :, k][mask]
+                    valid = np.isfinite(v_vals)
+                    if valid.any():
+                        prof.append(np.average(v_vals[valid], weights=w[valid]))
+                    else:
+                        prof.append(np.nan)
                 result[v] = np.array(prof)
+
 
             elif mode == "local_time_average":
                 dlt = np.abs((local_time - lt_target + 12) % 24 - 12)

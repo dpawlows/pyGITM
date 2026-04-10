@@ -14,6 +14,7 @@ Layout: one column per variable, one row per altitude.
   -absolute    : plot absolute day-night difference instead of contrast ratio.
   -percentdiff : plot percent difference (X_day - X_night) / X_night * 100.
   -shareaxis   : share y-axis range across altitudes for the same variable.
+  -subsolar    : use subsolar/antisolar point modes instead of sza_day/sza_night.
 Multiple files produce multiple lines per subplot.
 
 Usage:
@@ -117,14 +118,17 @@ def cosweight_mean(data_lat, lat_deg):
     )
 
 
-def load_contrasts(filename, varnames, alts_sorted):
+def load_contrasts(filename, varnames, alts_sorted, day_mode, night_mode):
     """
     Open one NetCDF file and return:
       contrasts[varname][alt] = 1-D contrast ratio array (time,)
       absolutes[varname][alt] = 1-D absolute difference array (time,)
       pctdiffs[varname][alt]  = 1-D percent difference array (time,)
+      day_vals[varname][alt]  = 1-D raw dayside values (time,)
+      night_vals[varname][alt]= 1-D raw nightside values (time,)
       Ls                      = unwrapped Ls array (time,)
       label                   = short case label string
+    day_mode / night_mode select which point modes to treat as day and night.
     """
     ds = nc.Dataset(filename)
 
@@ -139,15 +143,15 @@ def load_contrasts(filename, varnames, alts_sorted):
         ds.close()
         sys.exit(f"Error [{filename}]: 'global' lat mode not found. "
                  f"Available: {lat_modes}")
-    for m in ("sza_day", "sza_night"):
+    for m in (day_mode, night_mode):
         if m not in point_modes:
             ds.close()
             sys.exit(f"Error [{filename}]: '{m}' point mode not found. "
                      f"Available: {point_modes}")
 
     global_idx    = lat_modes.index("global")
-    sza_day_idx   = point_modes.index("sza_day")
-    sza_night_idx = point_modes.index("sza_night")
+    sza_day_idx   = point_modes.index(day_mode)
+    sza_night_idx = point_modes.index(night_mode)
 
     # Validate altitudes
     bad_alts = [a for a in alts_sorted if a not in alt_values]
@@ -175,9 +179,11 @@ def load_contrasts(filename, varnames, alts_sorted):
     for w in np.where(np.diff(Ls) < -180)[0]:
         Ls[w + 1:] += 360
 
-    contrasts = {v: {} for v in varnames}
-    absolutes = {v: {} for v in varnames}
-    pctdiffs  = {v: {} for v in varnames}
+    contrasts  = {v: {} for v in varnames}
+    absolutes  = {v: {} for v in varnames}
+    pctdiffs   = {v: {} for v in varnames}
+    day_vals   = {v: {} for v in varnames}
+    night_vals = {v: {} for v in varnames}
     for varname in varnames:
         for alt in alts_sorted:
             alt_idx = int(np.where(alt_values == alt)[0][0])
@@ -198,9 +204,11 @@ def load_contrasts(filename, varnames, alts_sorted):
 
             diff = x_day - x_night
             contrast = diff / x_mean
-            contrasts[varname][alt] = contrast
-            absolutes[varname][alt] = diff
-            pctdiffs[varname][alt]  = diff / x_night * 100.0
+            contrasts[varname][alt]  = contrast
+            absolutes[varname][alt]  = diff
+            pctdiffs[varname][alt]   = diff / x_night * 100.0
+            day_vals[varname][alt]   = x_day
+            night_vals[varname][alt] = x_night
             print(f"  {os.path.basename(filename)}  {varname:>14}  {int(alt):>4} km  "
                   f"mean={np.nanmean(contrast):>8.4f}  "
                   f"min={np.nanmin(contrast):>8.4f}  "
@@ -208,7 +216,7 @@ def load_contrasts(filename, varnames, alts_sorted):
     ds.close()
     label = (os.path.splitext(os.path.basename(filename))[0]
              .replace("_reduced", ""))
-    return contrasts, absolutes, pctdiffs, Ls, label
+    return contrasts, absolutes, pctdiffs, day_vals, night_vals, Ls, label
 
 
 def main():
@@ -229,6 +237,8 @@ def main():
                         help="Apply Savitzky-Golay smoothing with the given window size (must be odd)")
     parser.add_argument("-shareaxis", action="store_true",
                         help="Share y-axis range across all altitudes for the same variable")
+    parser.add_argument("-subsolar", action="store_true",
+                        help="Use subsolar/antisolar point modes instead of sza_day/sza_night")
     parser.add_argument("-show", action="store_true",
                         help="Display plot interactively")
     args = parser.parse_args()
@@ -246,39 +256,53 @@ def main():
 
     alts_sorted = sorted(args.alt, reverse=True)  # highest alt at top
 
+    if args.subsolar:
+        day_mode, night_mode = "subsolar", "antisolar"
+    else:
+        day_mode, night_mode = "sza_day", "sza_night"
+
     # ------------------------------------------------------------------
     # Load all files
     # ------------------------------------------------------------------
-    all_data = []   # list of (contrasts_dict, absolutes_dict, pctdiffs_dict, Ls_array, label)
+    all_data = []   # list of (contrasts_dict, absolutes_dict, pctdiffs_dict, day_dict, night_dict, Ls_array, label)
     for fname in args.filenames:
-        c, a, p, ls, label = load_contrasts(fname, args.var, alts_sorted)
-        all_data.append((c, a, p, ls, label))
+        c, a, p, d, n, ls, label = load_contrasts(fname, args.var, alts_sorted,
+                                                   day_mode, night_mode)
+        all_data.append((c, a, p, d, n, ls, label))
 
     multi_file = len(args.filenames) > 1
 
     # ------------------------------------------------------------------
-    # Plot — rows = altitudes, columns = variables
+    # Plot — rows = altitudes (+ day/night rows when single alt),
+    #         columns = variables
     # -absolute: only absolute day-night difference; otherwise contrast ratio
-    # -shareaxis: shared y-range per variable (column)
+    # -shareaxis: shared y-range across altitudes for the same variable
     # ------------------------------------------------------------------
-    n_rows     = len(alts_sorted)
+    single_alt = len(alts_sorted) == 1
+    n_contrast_rows = len(alts_sorted)
+    n_rows     = n_contrast_rows + 2 if single_alt else n_contrast_rows
     n_cols     = len(args.var)
     row_height = 4.0
     font       = BASE_FONT
 
+    # When single_alt, day/night rows are linked manually below so that the
+    # contrast row is excluded from axis sharing even when -shareaxis is set.
     fig, axes = plt.subplots(
         n_rows, n_cols,
         figsize=(COL_WIDTH_CM["single"] * n_cols * cm, row_height * n_rows * cm),
         sharex=True,
-        sharey="col" if args.shareaxis else "none",
+        sharey="col" if (args.shareaxis and not single_alt) else "none",
         constrained_layout=True,
         squeeze=False
     )
+    if single_alt and args.shareaxis:
+        for col in range(n_cols):
+            axes[n_contrast_rows + 1, col].sharey(axes[n_contrast_rows, col])
 
     def plot_lines(ax, data_getter, varname, alt):
         for j, entry in enumerate(all_data):
-            contrasts, absolutes, pctdiffs, Ls, label = entry
-            ydata = data_getter(contrasts, absolutes, pctdiffs, varname, alt)
+            contrasts, absolutes, pctdiffs, day_vals, night_vals, Ls, label = entry
+            ydata = data_getter(contrasts, absolutes, pctdiffs, day_vals, night_vals, varname, alt)
             if args.filter is not None:
                 ydata = savgol_filter(ydata, args.filter, polyorder=3)
             ax.plot(Ls, ydata,
@@ -297,14 +321,14 @@ def main():
         units = get_units(varname)
         if args.percentdiff:
             ylabel = PCTDIFF_LABELS.get(varname, f"% diff ({varname})")
-            getter = lambda c, a, p, v, h: p[v][h]
-        elif args.absolute:
+            getter = lambda c, a, p, d, n, v, h: p[v][h]
+        elif args.absolute or single_alt:
             delta_base = DELTA_LABELS.get(varname, f"$\\Delta${varname}")
             ylabel = delta_base + (f" ({units})" if units else "")
-            getter = lambda c, a, p, v, h: a[v][h]
+            getter = lambda c, a, p, d, n, v, h: a[v][h]
         else:
             ylabel = CR_LABELS.get(varname, f"CR ({varname})")
-            getter = lambda c, a, p, v, h: c[v][h]
+            getter = lambda c, a, p, d, n, v, h: c[v][h]
 
         axes[0, col].set_title(VAR_LABELS.get(varname, varname),
                                fontsize=font["label"])
@@ -321,6 +345,22 @@ def main():
                 ax.legend(frameon=False, fontsize=font["legend"],
                           loc="lower right")
 
+        # Raw day / night rows (single-alt mode only)
+        if single_alt:
+            alt = alts_sorted[0]
+            raw_ylabel = VAR_LABELS.get(varname, varname) + (f" ({units})" if units else "")
+            for raw_row, (raw_getter, side_label) in enumerate([
+                (lambda c, a, p, d, n, v, h: d[v][h], "Day"),
+                (lambda c, a, p, d, n, v, h: n[v][h], "Night"),
+            ], start=n_contrast_rows):
+                ax = axes[raw_row, col]
+                plot_lines(ax, raw_getter, varname, alt)
+                ax.text(0.02, 0.95, side_label,
+                        transform=ax.transAxes, va="top", ha="left",
+                        fontsize=font["text"])
+                if col == 0:
+                    ax.set_ylabel(raw_ylabel, fontsize=font["label"])
+
     for col in range(n_cols):
         axes[-1, col].set_xlabel("Solar Longitude (deg)", fontsize=font["label"])
 
@@ -331,7 +371,8 @@ def main():
                    .replace("_reduced", ""))
     var_str = "_".join(args.var)
     alt_str = "_".join(str(int(a)) for a in args.alt)
-    outfile = f"daynight_contrast_{var_str}_{casetag}_alt{alt_str}.png"
+    mode_tag = "_subsolar" if args.subsolar else ""
+    outfile = f"daynight_contrast_{var_str}_{casetag}_alt{alt_str}{mode_tag}.png"
     plt.savefig(outfile, dpi=150)
     print(f"\nPlot saved: {outfile}")
     if args.show:

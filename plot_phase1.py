@@ -23,7 +23,11 @@ VAR_DISPLAY = {
 
 
 def var_label(varname):
-    """Return 'display_name (units)' if units are known, else just display_name."""
+    """Return 'display_name (units)' if units are known, else just display_name.
+    For ratio vars like 'O/CO2', returns display_num/display_denom (dimensionless)."""
+    if "/" in varname:
+        num, denom = varname.split("/", 1)
+        return f"{VAR_DISPLAY.get(num, num)}/{VAR_DISPLAY.get(denom, denom)}"
     display = VAR_DISPLAY.get(varname, varname)
     units = get_units(varname)
     return f"{display} ({units})" if units else display
@@ -421,11 +425,36 @@ def main():
     mode = args.mode
     alts = args.alt  # always a list
 
+    # Detect and validate ratio vars (e.g. "O/CO2")
+    is_ratio = "/" in varname
+    if is_ratio:
+        ratio_parts = varname.split("/", 1)
+        ds_check = xr.open_dataset(args.ncfile[0])
+        coord_names = {"time", "altitude", "latitude", "mode_lat", "mode_point",
+                       "Ls", "nfiles", "average", "year", "sol"}
+        available = sorted({
+            v[:-6] if v.endswith("_point") else v
+            for v in list(ds_check.data_vars) + list(ds_check.coords)
+            if v not in coord_names
+        })
+        ds_check.close()
+        bad = [p for p in ratio_parts if p not in available]
+        if bad:
+            print(f"ERROR: Variable(s) not valid for ratio: {bad}")
+            print(f"Available variables: {available}")
+            sys.exit(1)
+
     # Load all (file, alt) combinations; detect mode type from first entry
     all_loaded = {}
     for f in args.ncfile:
         for alt in alts:
-            all_loaded[(f, alt)] = load_data(f, varname, mode, alt)
+            if is_ratio:
+                num, denom = ratio_parts
+                ds_n, da_n, ls, lat_dep = load_data(f, num,   mode, alt)
+                _,    da_d, _,  _       = load_data(f, denom, mode, alt)
+                all_loaded[(f, alt)] = (ds_n, da_n / da_d, ls, lat_dep)
+            else:
+                all_loaded[(f, alt)] = load_data(f, varname, mode, alt)
 
     lat_dependent = all_loaded[(args.ncfile[0], alts[0])][3]
 
@@ -459,7 +488,8 @@ def main():
         plt.show()
     else:
         alt_str = "_".join(str(int(a)) for a in alts)
-        outfile = f"{varname}_{mode}_{alt_str}km.png"
+        safe_var = varname.replace("/", "_over_")
+        outfile = f"{safe_var}_{mode}_{alt_str}km.png"
         plt.savefig(outfile, dpi=150)
         print(f"\nSaved: {outfile}")
 

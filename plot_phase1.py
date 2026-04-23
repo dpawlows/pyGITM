@@ -173,19 +173,18 @@ def load_data(ncfile, varname, mode, alt):
         print(f"Available altitudes (km): {available}")
         sys.exit(1)
 
-    ls = ds.Ls.values.copy()
-    wrap_indices = np.where(np.diff(ls) < -180)[0]
-    for w in wrap_indices:
-        ls[w+1:] += 360
+    ls = ds.Ls.values.copy() % 360
+    sort_idx = np.argsort(ls, kind='stable')
+    ls = ls[sort_idx]
+    da = da.isel({da.dims[0]: sort_idx})
 
     return ds, da, ls, lat_dependent
 
 
 def apply_ls_limits(ax, ls, args):
-    if args.lsmin is not None or args.lsmax is not None:
-        lsmin = args.lsmin if args.lsmin is not None else ls.min()
-        lsmax = args.lsmax if args.lsmax is not None else ls.max()
-        ax.set_xlim(lsmin, lsmax)
+    lsmin = args.lsmin if args.lsmin is not None else 0
+    lsmax = args.lsmax if args.lsmax is not None else 360
+    ax.set_xlim(lsmin, lsmax)
 
 
 def plot_single(ds, da, ls, lat_dependent, args):

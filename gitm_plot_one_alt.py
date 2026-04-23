@@ -36,6 +36,7 @@ def get_args(argv):
     diff = 0
     minv = None
     maxv = None
+    oco2 = 0
 
     for arg in argv:
 
@@ -109,6 +110,11 @@ def get_args(argv):
                 winds = 1
                 IsFound = 1
 
+            m = re.match(r'-O/CO2',arg)
+            if m:
+                oco2 = 1
+                IsFound = 1
+
             if IsFound==0 and not(arg==argv[0]):
                 filelist.append(arg)
 
@@ -125,7 +131,8 @@ def get_args(argv):
             'IsLog':IsLog,
             'IsContour':IsContour,
             'minv':minv,
-            'maxv':maxv}
+            'maxv':maxv,
+            'oco2':oco2}
 
     return args
 
@@ -148,7 +155,7 @@ if (args["help"]):
     print('Usage : ')
     print('gitm_plot_one_alt.py -var=N -tec -winds -cut=alt,lat,lon')
     print('                     -alt=alt -lat=lat -lon=lon -alog ')
-    print('                     -help [*.bin or a file]')
+    print('                     -O/CO2 -help [*.bin or a file]')
     print('   -help : print this message')
     print('   -var=number : number is variable to plot')
     print('   -cut=alt,lat,lon : which cut you would like')
@@ -160,6 +167,7 @@ if (args["help"]):
     print('   -winds: overplot winds')
     print('   -min=min: minimum value to plot')
     print('   -max=max: maximum value to plot')
+    print('   -O/CO2 : plot O/CO2 number density ratio (requires 3DALL files)')
     print('   At end, list the files you want to plot')
 
     iVar = 0
@@ -174,8 +182,32 @@ filelist = args["filelist"]
 nFiles = len(filelist)
 
 cut = args["cut"]
-vars = [0,1,2]
-vars.append(args["var"])
+
+if args["oco2"]:
+    for f in filelist:
+        if not re.search(r'3DALL', f):
+            print("Error: -O/CO2 requires 3DALL files, but '{}' does not appear to be a 3DALL file.".format(f))
+            exit()
+    # Find variable indices for [O] and [CO2] from the header
+    iO_ = None
+    iCO2_ = None
+    for iV, vname in enumerate(header["vars"]):
+        vstrip = vname.strip()
+        if vstrip == '[O]':
+            iO_ = iV
+        if vstrip == '[CO!D2!N]':
+            iCO2_ = iV
+    if iO_ is None or iCO2_ is None:
+        print("Error: could not find [O] (found={}) or [CO2] (found={}) in file variables.".format(iO_, iCO2_))
+        print("Available variables:")
+        for iV, v in enumerate(header["vars"]):
+            print("  {:3d}  {}".format(iV, v))
+        exit()
+    print("Found [O] at var index {} and [CO2] at var index {}".format(iO_, iCO2_))
+    vars = [0, 1, 2, iO_, iCO2_]
+else:
+    vars = [0,1,2]
+    vars.append(args["var"])
 
 if (args["winds"]):
     if (cut=='alt'):
@@ -192,22 +224,31 @@ if (args["winds"]):
     AllWindsX = []
     AllWindsY = []
 
-Var = header["vars"][args["var"]]
-Var = Var.replace('!U','^')
-Var = Var.replace('!D','_')
-Var = Var.replace('!N','')
-Var = '$'+Var+'$'
+if args["oco2"]:
+    Var = r'$[O]/[CO_2]$'
+else:
+    Var = header["vars"][args["var"]]
+    Var = Var.replace('!U','^')
+    Var = Var.replace('!D','_')
+    Var = Var.replace('!N','')
+    Var = '$'+Var+'$'
 AllData2D = []
 AllAlts = []
 AllTimes = []
 j = 0
 for file in filelist:
     data = read_gitm_one_file(file, vars)
-    data = read_gitm_one_file(file, vars)
-    print("Data shape:", data[args["var"]].shape)
-    print("Min/Max:", np.nanmin(data[args["var"]]), np.nanmax(data[args["var"]]))
-    print("NaN count:", np.sum(np.isnan(data[args["var"]])))
-    print("Inf count:", np.sum(np.isinf(data[args["var"]])))
+    if args["oco2"]:
+        _dbg = data[iO_]
+        print("Data shape:", _dbg.shape)
+        print("Min/Max [O]:", np.nanmin(_dbg), np.nanmax(_dbg))
+        print("NaN count:", np.sum(np.isnan(_dbg)))
+        print("Inf count:", np.sum(np.isinf(_dbg)))
+    else:
+        print("Data shape:", data[args["var"]].shape)
+        print("Min/Max:", np.nanmin(data[args["var"]]), np.nanmax(data[args["var"]]))
+        print("NaN count:", np.sum(np.isnan(data[args["var"]])))
+        print("Inf count:", np.sum(np.isinf(data[args["var"]])))
     if (j == 0):
         [nLons, nLats, nAlts] = data[0].shape
         Alts = data[2][0][0]/1000.0;
@@ -257,7 +298,15 @@ for file in filelist:
 
     AllTimes.append(data["time"])
 
-    if (args["tec"]):
+    if args["oco2"]:
+        ratio = data[iO_] / np.where(data[iCO2_] == 0, np.nan, data[iCO2_])
+        if (cut == 'alt'):
+            AllData2D.append(ratio[:,:,iAlt])
+        if (cut == 'lat'):
+            AllData2D.append(ratio[:,iLat,:])
+        if (cut == 'lon'):
+            AllData2D.append(ratio[iLon,:,:])
+    elif (args["tec"]):
         iAlt = 2
         tec = np.zeros((nLons, nLats))
         for Alt in Alts:
@@ -342,8 +391,11 @@ maxX = (xPos[-2] + xPos[-3])/2
 minY = (yPos[ 1] + yPos[ 2])/2
 maxY = (yPos[-2] + yPos[-3])/2
 
-file = "var%2.2d_" % args["var"]
-file = file+cut
+if args["oco2"]:
+    file = "O_CO2_ratio_" + cut
+else:
+    file = "var%2.2d_" % args["var"]
+    file = file+cut
 
 for time in AllTimes:
 

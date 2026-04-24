@@ -15,6 +15,7 @@ import re
 import sys
 
 rtod = 180.0/3.141592
+boltzmann = 1.380649e-23
 
 #-----------------------------------------------------------------------------
 #
@@ -38,6 +39,7 @@ def get_args(argv):
     minv = None
     maxv = None
     oco2 = 0
+    pressure = 0
     cmap = 'plasma'
 
     for arg in argv:
@@ -122,6 +124,11 @@ def get_args(argv):
                 oco2 = 1
                 IsFound = 1
 
+            m = re.match(r'-pressure',arg)
+            if m:
+                pressure = 1
+                IsFound = 1
+
             m = re.match(r'-cmap=(.*)',arg)
             if m:
                 cmap = m.group(1)
@@ -146,6 +153,7 @@ def get_args(argv):
             'minv':minv,
             'maxv':maxv,
             'oco2':oco2,
+            'pressure':pressure,
             'cmap':cmap}
 
     return args
@@ -184,6 +192,7 @@ if (args["help"]):
     print('   -max=max: maximum value to plot')
     print('   -cmap=name: colormap to use (default: plasma)')
     print('   -O/CO2 : plot O/CO2 number density ratio (requires 3DALL files)')
+    print('   -pressure: calculate and plot pressure from neutral densities and temperature')
     print('   At end, list the files you want to plot')
 
     iVar = 0
@@ -198,6 +207,27 @@ filelist = args["filelist"]
 nFiles = len(filelist)
 
 cut = args["cut"]
+
+pressure_density_indices = []
+pressure_temp_index = None
+if args["pressure"]:
+    try:
+        pressure_temp_index = header['vars'].index('Temperature')
+    except ValueError:
+        print('Pressure plotting requires an ALL file that includes Temperature.')
+        exit(1)
+    try:
+        rho_index = header['vars'].index('Rho')
+    except ValueError:
+        print('Pressure plotting requires an ALL file that includes Rho and neutral densities.')
+        exit(1)
+    pressure_density_indices = [
+        i for i in range(rho_index + 1, pressure_temp_index)
+        if header['vars'][i].startswith('[') and header['vars'][i].endswith(']')
+    ]
+    if len(pressure_density_indices) == 0:
+        print('Pressure plotting requires neutral density variables between Rho and Temperature in the ALL file.')
+        exit(1)
 
 if args["oco2"]:
     for f in filelist:
@@ -221,6 +251,8 @@ if args["oco2"]:
         exit()
     print("Found [O] at var index {} and [CO2] at var index {}".format(iO_, iCO2_))
     vars = [0, 1, 2, iO_, iCO2_]
+elif args["pressure"]:
+    vars = [0, 1, 2] + pressure_density_indices + [pressure_temp_index]
 else:
     vars = [0,1,2]
     vars.append(args["var"])
@@ -256,6 +288,8 @@ if (args["winds"]):
 
 if args["oco2"]:
     Var = r'$[O]/[CO_2]$'
+elif args["pressure"]:
+    Var = 'Pressure (Pa)'
 else:
     Var = header["vars"][args["var"]]
     Var = Var.replace('!U','^')
@@ -272,6 +306,12 @@ for file in filelist:
         _dbg = data[iO_]
         print("Data shape:", _dbg.shape)
         print("Min/Max [O]:", np.nanmin(_dbg), np.nanmax(_dbg))
+        print("NaN count:", np.sum(np.isnan(_dbg)))
+        print("Inf count:", np.sum(np.isinf(_dbg)))
+    elif args["pressure"]:
+        _dbg = data[pressure_temp_index]
+        print("Data shape:", _dbg.shape)
+        print("Min/Max Temperature:", np.nanmin(_dbg), np.nanmax(_dbg))
         print("NaN count:", np.sum(np.isnan(_dbg)))
         print("Inf count:", np.sum(np.isinf(_dbg)))
     else:
@@ -344,6 +384,32 @@ for file in filelist:
                 tec = tec + data[args["var"]][:,:,iAlt] * (Alts[iAlt+1]-Alts[iAlt-1])/2 * 1000.0
             iAlt=iAlt+1
         AllData2D.append(tec/1e16)
+    elif (args["pressure"]):
+        if (cut == 'alt'):
+            number_density = np.zeros_like(data[pressure_density_indices[0]][:,:,iAlt])
+            for idens in pressure_density_indices:
+                number_density += data[idens][:,:,iAlt]
+            AllData2D.append(number_density * boltzmann * data[pressure_temp_index][:,:,iAlt])
+        if (cut == 'lat'):
+            number_density = np.zeros_like(data[pressure_density_indices[0]][:,iLat,:])
+            for idens in pressure_density_indices:
+                number_density += data[idens][:,iLat,:]
+            AllData2D.append(number_density * boltzmann * data[pressure_temp_index][:,iLat,:])
+        if (cut == 'lon'):
+            number_density = np.zeros_like(data[pressure_density_indices[0]][iLon,:,:])
+            for idens in pressure_density_indices:
+                number_density += data[idens][iLon,:,:]
+            AllData2D.append(number_density * boltzmann * data[pressure_temp_index][iLon,:,:])
+        if (args["winds"]):
+            if (cut == 'alt'):
+                AllWindsX.append(data[iUx_][:,:,iAlt])
+                AllWindsY.append(data[iUy_][:,:,iAlt])
+            if (cut == 'lat'):
+                AllWindsX.append(data[iUx_][:,iLat,:])
+                AllWindsY.append(data[iUy_][:,iLat,:])
+            if (cut == 'lon'):
+                AllWindsX.append(data[iUx_][iLon,:,:])
+                AllWindsY.append(data[iUy_][iLon,:,:])
     else:
         if (cut == 'alt'):
             AllData2D.append(data[args["var"]][:,:,iAlt])
@@ -423,6 +489,8 @@ maxY = (yPos[-2] + yPos[-3])/2
 
 if args["oco2"]:
     file = "O_CO2_ratio_" + cut
+elif args["pressure"]:
+    file = "pressure_" + cut
 else:
     file = "var%2.2d_" % args["var"]
     file = file+cut

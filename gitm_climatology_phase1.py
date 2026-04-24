@@ -8,6 +8,50 @@ from gitm_routines import *
 from gitmconcurrent import *
 from marstiming import getMarsSolarGeometry
 
+boltzmann = 1.380649e-23
+
+
+def _interp_to_pressure_levels(var_profile, pressure_profile, target_levels):
+    """Interpolate a 1-D profile to target pressure levels in log-pressure space.
+
+    pressure_profile decreases with altitude index, so flip before calling np.interp.
+    Returns NaN outside the range of the pressure profile.
+    """
+    log_p = np.log(pressure_profile[::-1])   # increasing
+    var_flip = var_profile[::-1]
+    log_targets = np.log(np.asarray(target_levels, dtype=float))
+    return np.interp(log_targets, log_p, var_flip, left=np.nan, right=np.nan)
+
+
+def _extract_at_pressure(entry, var_idx, pressure_density_indices,
+                         pressure_temp_index, pressure_levels):
+    """Return variable from one entry interpolated to pressure_levels.
+
+    Shape returned:
+      - (nlat, n_pres) for 2-D (lat, alt) entries
+      - (1, n_pres)    for 1-D (alt,) entries  — matches the [None, :] alt convention
+    """
+    temp = entry[pressure_temp_index]
+    number_density = np.zeros_like(temp, dtype=float)
+    for idens in pressure_density_indices:
+        number_density += entry[idens]
+    pressure = number_density * boltzmann * temp
+
+    var_data = entry[var_idx]
+    n_pres = len(pressure_levels)
+
+    if var_data.ndim == 2:
+        n_lat = var_data.shape[0]
+        result = np.empty((n_lat, n_pres))
+        for ilat in range(n_lat):
+            result[ilat] = _interp_to_pressure_levels(
+                var_data[ilat], pressure[ilat], pressure_levels
+            )
+    else:
+        result = _interp_to_pressure_levels(var_data, pressure, pressure_levels)[None, :]
+
+    return result
+
 # --------------------------------------------------
 # Default configuration
 # --------------------------------------------------
@@ -56,6 +100,14 @@ def parse_args():
         type=float,
         default=DEFAULT_ALTITUDES,
         help="Altitudes (km) to extract"
+    )
+
+    parser.add_argument(
+        "-pressure",
+        nargs="+",
+        type=float,
+        default=None,
+        help="Pressure level(s) in Pa to extract instead of altitudes"
     )
 
     parser.add_argument(
@@ -108,9 +160,14 @@ def main():
     case_name = args.case
     max_workers = args.workers
     serial = args.serial
+    pressure_mode = args.pressure is not None
+    pressure_levels = args.pressure
 
     print(f"\nCase: {case_name}")
-    print(f"Altitudes: {altitudes_km}")
+    if pressure_mode:
+        print(f"Pressure levels (Pa): {pressure_levels}")
+    else:
+        print(f"Altitudes: {altitudes_km}")
     print(f"Workers: {max_workers}")
 
     header = read_gitm_header(files[:1])
@@ -125,6 +182,24 @@ def main():
     # the gitm reader returns entries keyed by the original header index, not by position
     # thus we use var_indices directly
     vars_for_read = [0,1,2] + var_indices
+
+    pressure_density_indices = []
+    pressure_temp_index = None
+    if pressure_mode:
+        try:
+            pressure_temp_index = header['vars'].index('Temperature')
+            rho_index = header['vars'].index('Rho')
+        except ValueError as e:
+            raise ValueError(f"Pressure mode requires Temperature and Rho variables: {e}")
+        pressure_density_indices = [
+            i for i in range(rho_index + 1, pressure_temp_index)
+            if header['vars'][i].startswith('[') and header['vars'][i].endswith(']')
+        ]
+        if not pressure_density_indices:
+            raise ValueError("No neutral density variables found between Rho and Temperature.")
+        for idx in pressure_density_indices + [pressure_temp_index]:
+            if idx not in vars_for_read:
+                vars_for_read.append(idx)
 
     mode_data = {}
 
@@ -172,36 +247,39 @@ def main():
         else:
             single_location = False
 
-        alt = data[0]['alt']
-
-        # Find altitude indices
-        alt_indices = [
-            np.argmin(np.abs(alt - a)) for a in altitudes_km
-        ]
-
         var_arrays = {}
 
-        for var_name, var_idx in zip(REQUIRED_VARS, var_indices):
-
-            print(f"  Extracting {var_name}")
-
-            sample_var = data[0][var_idx]
-
-            if sample_var.ndim == 2:
-                # (lat, alt)
+        if pressure_mode:
+            for var_name, var_idx in zip(REQUIRED_VARS, var_indices):
+                print(f"  Extracting {var_name} at pressure levels")
                 arr = np.array([
-                    entry[var_idx][:, alt_indices]
+                    _extract_at_pressure(
+                        entry, var_idx, pressure_density_indices,
+                        pressure_temp_index, pressure_levels
+                    )
                     for entry in data
                 ])
+                var_arrays[var_name] = arr
+        else:
+            alt = data[0]['alt']
+            alt_indices = [np.argmin(np.abs(alt - a)) for a in altitudes_km]
 
-            else:
-                # (alt,) → create latitude dimension of size 1
-                arr = np.array([
-                    entry[var_idx][alt_indices][None, :]
-                    for entry in data
-                ])
-
-            var_arrays[var_name] = arr
+            for var_name, var_idx in zip(REQUIRED_VARS, var_indices):
+                print(f"  Extracting {var_name}")
+                sample_var = data[0][var_idx]
+                if sample_var.ndim == 2:
+                    # (lat, alt)
+                    arr = np.array([
+                        entry[var_idx][:, alt_indices]
+                        for entry in data
+                    ])
+                else:
+                    # (alt,) → create latitude dimension of size 1
+                    arr = np.array([
+                        entry[var_idx][alt_indices][None, :]
+                        for entry in data
+                    ])
+                var_arrays[var_name] = arr
 
         mode_data[mode_name] = {
             "vars": var_arrays,
@@ -243,7 +321,12 @@ def main():
     else:
         # Only point modes exist
         latitude = np.array([np.nan])
-    altitude = np.array(altitudes_km)
+    if pressure_mode:
+        vert_coord_name = "pressure"
+        vert_coord_vals = np.array(pressure_levels)
+    else:
+        vert_coord_name = "altitude"
+        vert_coord_vals = np.array(altitudes_km)
 
     ds_vars_lat = {}
 
@@ -256,7 +339,7 @@ def main():
         )
 
         ds_vars_lat[clean_name] = (
-            ["time", "latitude", "altitude", "mode_lat"],
+            ["time", "latitude", vert_coord_name, "mode_lat"],
             stacked
         )
 
@@ -270,37 +353,38 @@ def main():
         clean_name = clean_varname(var_name, netcdf_safe=True)
 
         ds_vars_point[clean_name + "_point"] = (
-            ["time", "altitude", "mode_point"],
+            ["time", vert_coord_name, "mode_point"],
             stacked
         )
 
 
     ds_lat = xr.Dataset(
         data_vars=ds_vars_lat,
-        coords=dict(
-            time=("time", time_coord),
-            Ls=("time", mode_data[reference_mode]["Ls"]),
-            year=("time", mode_data[reference_mode]["year"]),
-            sol=("time", mode_data[reference_mode]["sol"]),
-            nfiles=("time",mode_data[reference_mode]["nfiles"]),
-            latitude=("latitude", latitude),
-            altitude=("altitude", altitude),
-            mode_lat=("mode_lat", lat_modes),
-        )
+        coords={
+            "time": ("time", time_coord),
+            "Ls": ("time", mode_data[reference_mode]["Ls"]),
+            "year": ("time", mode_data[reference_mode]["year"]),
+            "sol": ("time", mode_data[reference_mode]["sol"]),
+            "nfiles": ("time", mode_data[reference_mode]["nfiles"]),
+            "latitude": ("latitude", latitude),
+            vert_coord_name: (vert_coord_name, vert_coord_vals),
+            "mode_lat": ("mode_lat", lat_modes),
+        }
     )
 
     ds_point = xr.Dataset(
         data_vars=ds_vars_point,
-        coords=dict(
-            time=("time", time_coord),
-            altitude=("altitude", altitude),
-            mode_point=("mode_point", point_modes),
-        )
+        coords={
+            "time": ("time", time_coord),
+            vert_coord_name: (vert_coord_name, vert_coord_vals),
+            "mode_point": ("mode_point", point_modes),
+        }
     )
 
     ds = xr.merge([ds_lat, ds_point])
     ds.attrs = dict(case_name=case_name,
-            altitudes_km=str(altitudes_km),
+            altitudes_km=str(altitudes_km) if not pressure_mode else "N/A",
+            pressure_levels_pa=str(pressure_levels) if pressure_mode else "N/A",
             modes_lat=str(lat_modes),
             modes_point=str(point_modes),
             average=str(args.average),

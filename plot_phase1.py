@@ -82,6 +82,8 @@ def parse_args():
         default=None,
         help="Maximum Ls for x-axis"
     )
+    parser.add_argument("-bw", action="store_true",
+                        help="Black-and-white mode: use only black lines with varying styles")
     parser.add_argument("-h", "--help", action="store_true",
                         help="Show help or dataset info")
 
@@ -237,6 +239,7 @@ def plot_single(ds, da, ls, lat_dependent, args):
 
 
 LINESTYLES = ['-', '--', '-.', ':', (0, (3, 1, 1, 1)), (0, (5, 1))]
+COLORS = ['C0', 'C1', 'C2', 'C3', 'C4', 'C5']
 
 # Physical column widths (match your journal)
 COL_WIDTH_CM = {"single": 8, "double": 16}
@@ -279,8 +282,9 @@ def plot_point(data_by_alt, filenames, args):
         ax = axes[i]
         for j, (da, ls, f) in enumerate(zip(data_arrays, ls_arrays, filenames)):
             label = os.path.splitext(os.path.basename(f))[0].replace("_reduced", "")
+            color = 'k' if args.bw else COLORS[j % len(COLORS)]
             ax.plot(ls, da.values, label=label,
-                    color='k', linestyle=LINESTYLES[j % len(LINESTYLES)])
+                    color=color, linestyle=LINESTYLES[j % len(LINESTYLES)])
         ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x % 360:.0f}"))
         ax.tick_params(labelsize=font["tick"])
 

@@ -33,10 +33,12 @@ def get_args(argv):
     cut = 'alt'
     help = 0
     winds = 0
+    norm = 0
     diff = 0
     minv = None
     maxv = None
     oco2 = 0
+    cmap = 'plasma'
 
     for arg in argv:
 
@@ -110,9 +112,19 @@ def get_args(argv):
                 winds = 1
                 IsFound = 1
 
+            m = re.match(r'-norm',arg)
+            if m:
+                norm = 1
+                IsFound = 1
+
             m = re.match(r'-O/CO2',arg)
             if m:
                 oco2 = 1
+                IsFound = 1
+
+            m = re.match(r'-cmap=(.*)',arg)
+            if m:
+                cmap = m.group(1)
                 IsFound = 1
 
             if IsFound==0 and not(arg==argv[0]):
@@ -125,6 +137,7 @@ def get_args(argv):
             'tec':tec,
             'help':help,
             'winds':winds,
+            'norm':norm,
             'alt':alt,
             'lat':lat,
             'lon':lon,
@@ -132,7 +145,8 @@ def get_args(argv):
             'IsContour':IsContour,
             'minv':minv,
             'maxv':maxv,
-            'oco2':oco2}
+            'oco2':oco2,
+            'cmap':cmap}
 
     return args
 
@@ -155,7 +169,7 @@ if (args["help"]):
     print('Usage : ')
     print('gitm_plot_one_alt.py -var=N -tec -winds -cut=alt,lat,lon')
     print('                     -alt=alt -lat=lat -lon=lon -alog ')
-    print('                     -O/CO2 -help [*.bin or a file]')
+    print('                     -O/CO2 -norm -help [*.bin or a file]')
     print('   -help : print this message')
     print('   -var=number : number is variable to plot')
     print('   -cut=alt,lat,lon : which cut you would like')
@@ -165,8 +179,10 @@ if (args["help"]):
     print('   -alog : plot the log of the variable')
     print('   -contour: plot a contour instead of a pseudocolor')
     print('   -winds: overplot winds')
+    print('   -norm : normalize wind vectors to show direction only (use with -winds)')
     print('   -min=min: minimum value to plot')
     print('   -max=max: maximum value to plot')
+    print('   -cmap=name: colormap to use (default: plasma)')
     print('   -O/CO2 : plot O/CO2 number density ratio (requires 3DALL files)')
     print('   At end, list the files you want to plot')
 
@@ -210,15 +226,29 @@ else:
     vars.append(args["var"])
 
 if (args["winds"]):
+    iEast_ = None
+    iNorth_ = None
+    iUp_ = None
+    for iV, vname in enumerate(header["vars"]):
+        vstrip = vname.strip()
+        if '(east)' in vstrip:
+            iEast_ = iV
+        if '(north)' in vstrip:
+            iNorth_ = iV
+        if '(up)' in vstrip:
+            iUp_ = iV
+    if iEast_ is None or iNorth_ is None or iUp_ is None:
+        print("Error: could not find wind variables (east={}, north={}, up={}) in header.".format(iEast_, iNorth_, iUp_))
+        exit()
     if (cut=='alt'):
-        iUx_ = 16
-        iUy_ = 17
+        iUx_ = iEast_
+        iUy_ = iNorth_
     if (cut=='lat'):
-        iUx_ = 16
-        iUy_ = 18
+        iUx_ = iEast_
+        iUy_ = iUp_
     if (cut=='lon'):
-        iUx_ = 17
-        iUy_ = 18
+        iUx_ = iNorth_
+        iUy_ = iUp_
     vars.append(iUx_)
     vars.append(iUy_)
     AllWindsX = []
@@ -411,15 +441,17 @@ for time in AllTimes:
 
     norm = cm.colors.Normalize(vmax=mini, vmin=maxi)
     print(mini)
-    # if (mini >= 0):
-    cmap = cm.plasma
-    # else:
-    #     cmap = cm.bwr
+    cmap = args['cmap']
 
     d2d = np.transpose(AllData2D[i])
     if (args["winds"]):
         Ux2d = np.transpose(AllWindsX[i])
         Uy2d = np.transpose(AllWindsY[i])
+        if (args["norm"]):
+            mag = np.sqrt(Ux2d**2 + Uy2d**2)
+            mag = np.where(mag == 0, np.nan, mag)
+            Ux2d = Ux2d / mag
+            Uy2d = Uy2d / mag
 
     sTime = time.strftime('%y%m%d_%H%M%S')
     outfile = file+'_'+sTime+'.png'

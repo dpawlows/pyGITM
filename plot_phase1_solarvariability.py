@@ -246,10 +246,13 @@ def main():
             T_c    = T[mask]
             ls_c   = Ls[mask]
             slope, intercept, r_value, p_value, std_err = stats.linregress(f107_c, T_c)
-            print(f"  d{varname}/dF10.7 = {slope:.4f} /sfu,  R² = {r_value**2:.4f}")
+            residuals = T_c - (slope * f107_c + intercept)
+            rmse = np.sqrt(np.mean(residuals**2))
+            print(f"  d{varname}/dF10.7 = {slope:.4f} /sfu,  R² = {r_value**2:.4f},  RMSE = {rmse:.4f}")
             datasets.append(dict(f107=f107_c, T=T_c, Ls=ls_c,
                                  slope=slope, intercept=intercept,
                                  r=r_value, p_value=p_value, std_err=std_err,
+                                 residuals=residuals, rmse=rmse,
                                  alt=int(alt), label=f"{int(alt)} km"))
     else:
         # One subplot per file, single altitude
@@ -267,11 +270,14 @@ def main():
             T_c    = T[mask]
             ls_c   = Ls[mask]
             slope, intercept, r_value, p_value, std_err = stats.linregress(f107_c, T_c)
-            print(f"  d{varname}/dF10.7 = {slope:.4f} /sfu,  R² = {r_value**2:.4f}")
+            residuals = T_c - (slope * f107_c + intercept)
+            rmse = np.sqrt(np.mean(residuals**2))
+            print(f"  d{varname}/dF10.7 = {slope:.4f} /sfu,  R² = {r_value**2:.4f},  RMSE = {rmse:.4f}")
             label = os.path.splitext(os.path.basename(fname))[0].replace("_reduced", "")
             datasets.append(dict(f107=f107_c, T=T_c, Ls=ls_c,
                                  slope=slope, intercept=intercept,
                                  r=r_value, p_value=p_value, std_err=std_err,
+                                 residuals=residuals, rmse=rmse,
                                  alt=int(args.alt[0]), label=label))
 
     # ------------------------------------------------------------------
@@ -369,11 +375,12 @@ def main():
         fh.write(f"# Regression results: {varname} vs F10.7\n")
         fh.write(f"# mode={args.mode}\n")
         fh.write(f"# {'alt_km':>8} {'slope':>12} {'intercept':>12} "
-                 f"{'R2':>8} {'p_value':>12} {'std_err':>12}\n")
+                 f"{'R2':>8} {'p_value':>12} {'std_err':>12} {'RMSE':>12}\n")
         for d in datasets:
             fh.write(f"  {d['alt']:>8} "
                      f"{d['slope']:>12.4f} {d['intercept']:>12.4f} "
-                     f"{d['r']**2:>8.4f} {d['p_value']:>12.4e} {d['std_err']:>12.4f}\n")
+                     f"{d['r']**2:>8.4f} {d['p_value']:>12.4e} {d['std_err']:>12.4f} "
+                     f"{d['rmse']:>12.4f}\n")
     print(f"Regression results saved: {regressfile}")
     if args.show:
         plt.show()

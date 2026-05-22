@@ -53,20 +53,23 @@ def parse_args():
     parser.add_argument("-var", help="Variable name")
     parser.add_argument("-mode", help="Mode (e.g., global, lt14, subsolar)")
     parser.add_argument("-alt", type=float, nargs="+", help="Altitude(s) in km")
+    parser.add_argument("-pressure", type=float, nargs="+", help="Pressure level(s) in Pa")
     parser.add_argument("-show", action="store_true",
                         help="Show plot instead of saving")
     parser.add_argument(
         "-vmin",
         type=float,
+        nargs="+",
         default=None,
-        help="Minimum value for color scale"
+        help="Minimum value(s) for axis/color scale; give 1 value or one per vertical level"
     )
 
     parser.add_argument(
         "-vmax",
         type=float,
+        nargs="+",
         default=None,
-        help="Maximum value for color scale"
+        help="Maximum value(s) for axis/color scale; give 1 value or one per vertical level"
     )
 
     parser.add_argument(
@@ -82,8 +85,16 @@ def parse_args():
         default=None,
         help="Maximum Ls for x-axis"
     )
+    parser.add_argument("-alog", action="store_true",
+                        help="Use log scaling on the y-axis of each subplot")
+    parser.add_argument("-legendloc", default="lower left",
+                        help="Legend location (default: 'lower left'); accepts any pyplot loc string")
     parser.add_argument("-bw", action="store_true",
                         help="Black-and-white mode: use only black lines with varying styles")
+    parser.add_argument("-lcolors", nargs="+", default=None,
+                        help="Line colors for each input file (point mode)")
+    parser.add_argument("-ls", nargs="+", default=None,
+                        help="Line styles for each input file (point mode): s=solid, d=dashed, dd=dashdot, dt=dotted")
     parser.add_argument("-h", "--help", action="store_true",
                         help="Show help or dataset info")
 
@@ -118,8 +129,12 @@ def print_dataset_info(ds):
     for v in ds.data_vars:
         print("  ", v)
 
-    print("\nAvailable altitudes (km):")
-    print("  ", ds.altitude.values)
+    if "altitude" in ds.coords:
+        print("\nAvailable altitudes (km):")
+        print("  ", ds.altitude.values)
+    elif "pressure" in ds.coords:
+        print("\nAvailable pressure levels (Pa):")
+        print("  ", ds.pressure.values)
 
     if "mode_lat" in ds.coords:
         print("\nLatitude-dependent modes (mode_lat):")
@@ -132,7 +147,7 @@ def print_dataset_info(ds):
     print("\n===========================\n")
 
 
-def load_data(ncfile, varname, mode, alt):
+def load_data(ncfile, varname, mode, vert_val, vert_coord="altitude"):
     """Load a dataset and return (ds, da, ls, lat_dependent)."""
     ds = xr.open_dataset(ncfile)
 
@@ -168,11 +183,15 @@ def load_data(ncfile, varname, mode, alt):
         raise ValueError(f"[{ncfile}] Mode '{mode}' not found in dataset.")
 
     try:
-        da = da.sel(altitude=alt)
+        da = da.sel({vert_coord: vert_val})
     except KeyError:
-        available = ds.altitude.values
-        print(f"ERROR: Altitude {alt} km not found in {ncfile}.")
-        print(f"Available altitudes (km): {available}")
+        available = ds[vert_coord].values
+        if vert_coord == "altitude":
+            print(f"ERROR: Altitude {vert_val} km not found in {ncfile}.")
+            print(f"Available altitudes (km): {available}")
+        else:
+            print(f"ERROR: Pressure {vert_val} Pa not found in {ncfile}.")
+            print(f"Available pressure levels (Pa): {available}")
         sys.exit(1)
 
     ls = ds.Ls.values.copy() % 360
@@ -214,8 +233,8 @@ def plot_single(ds, da, ls, lat_dependent, args):
             ds.latitude.values,
             da.T,
             shading="auto",
-            vmin=args.vmin,
-            vmax=args.vmax,
+            vmin=args.vmin[0] if args.vmin is not None else None,
+            vmax=args.vmax[0] if args.vmax is not None else None,
             cmap='plasma'
         )
         axes[1].xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x % 360:.0f}"))
@@ -239,6 +258,7 @@ def plot_single(ds, da, ls, lat_dependent, args):
 
 
 LINESTYLES = ['-', '--', '-.', ':', (0, (3, 1, 1, 1)), (0, (5, 1))]
+LS_MAP = {'s': '-', 'd': '--', 'dd': '-.', 'dt': ':'}
 COLORS = ['C0', 'C1', 'C2', 'C3', 'C4', 'C5']
 
 # Physical column widths (match your journal)
@@ -253,59 +273,82 @@ def scale_fonts(col_type="single", base_font=BASE_FONT,
     scale = COL_WIDTH_CM[col_type] / COL_WIDTH_CM[reference_col_type]
     return {k: v * scale for k, v in base_font.items()}
 
-def plot_point(data_by_alt, filenames, args):
-    """Point mode: one row per altitude, one line per file.
+def plot_point(data_by_vert, filenames, args, vert_coord="altitude"):
+    """Point mode: one row per vertical level, one line per file.
 
-    data_by_alt: list of (alt, data_arrays, ls_arrays) tuples, one per altitude.
+    data_by_vert: list of (vert_val, data_arrays, ls_arrays) tuples, one per level.
+    vert_coord: 'altitude' or 'pressure'
     """
     varname = args.var
 
-    # Highest altitude in top subplot
-    data_by_alt = sorted(data_by_alt, key=lambda x: x[0], reverse=True)
-    n_alts = len(data_by_alt)
- 
+    # Highest altitude (lowest pressure) in top subplot
+    reverse_sort = (vert_coord == "altitude")
+    data_by_vert = sorted(data_by_vert, key=lambda x: x[0], reverse=reverse_sort)
+    n_levels = len(data_by_vert)
+
     col_type = 'single'
     row_height_cm=4.0
     font = scale_fonts(col_type)
     width_cm  = COL_WIDTH_CM[col_type]
-    height_cm = row_height_cm * n_alts
+    height_cm = row_height_cm * n_levels
 
     fig, axes = plt.subplots(
-        n_alts, 1,
+        n_levels, 1,
         figsize=(width_cm * cm, height_cm*cm),
         sharex='col',
         constrained_layout=True
     )
     axes = axes.ravel()
 
-    for i, (alt, data_arrays, ls_arrays) in enumerate(data_by_alt):
+    for i, (vert_val, data_arrays, ls_arrays) in enumerate(data_by_vert):
         ax = axes[i]
         for j, (da, ls, f) in enumerate(zip(data_arrays, ls_arrays, filenames)):
             label = os.path.splitext(os.path.basename(f))[0].replace("_reduced", "")
-            color = 'k' if args.bw else COLORS[j % len(COLORS)]
+            if args.bw:
+                color = 'k'
+            elif args.lcolors is not None:
+                color = args.lcolors[j % len(args.lcolors)]
+            else:
+                color = COLORS[j % len(COLORS)]
+            if args.ls is not None:
+                key = args.ls[j % len(args.ls)]
+                linestyle = LS_MAP.get(key, '-')
+            else:
+                linestyle = LINESTYLES[j % len(LINESTYLES)]
             ax.plot(ls, da.values, label=label,
-                    color=color, linestyle=LINESTYLES[j % len(LINESTYLES)])
+                    color=color, linestyle=linestyle)
         ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x % 360:.0f}"))
         ax.tick_params(labelsize=font["tick"])
 
-        if args.vmin is not None and args.vmax is not None:
-            ax.set_ylim(args.vmin, args.vmax)
+        if args.alog:
+            ax.set_yscale('log')
 
+        vmin_i = args.vmin[i] if args.vmin is not None and len(args.vmin) > 1 else (args.vmin[0] if args.vmin is not None else None)
+        vmax_i = args.vmax[i] if args.vmax is not None and len(args.vmax) > 1 else (args.vmax[0] if args.vmax is not None else None)
+        if vmin_i is not None and vmax_i is not None:
+            ax.set_ylim(vmin_i, vmax_i)
+
+        if vert_coord == "altitude":
+            level_label = f"{int(vert_val)} km"
+        else:
+            level_label = f"{vert_val:.2e} Pa"
         ypos = 0.95
-        ax.text(0.018, ypos, f"{int(alt)} km",
+        ax.text(0.018, ypos, level_label,
                 transform=ax.transAxes, va='top', ha='left', fontsize=font["text"])
 
-    if n_alts > 1:
+    if n_levels > 1:
         fig.supylabel(var_label(varname), fontsize=font["label"])
         fig.supxlabel("Solar Longitude (deg)", fontsize=font["label"])
     else:
         axes[-1].set_xlabel("Solar Longitude (deg)", fontsize=font["label"])
         axes[-1].set_ylabel(var_label(varname), fontsize=font["label"])
-    apply_ls_limits(axes[-1], data_by_alt[0][2][0], args)  # sharex propagates to all
+    apply_ls_limits(axes[-1], data_by_vert[0][2][0], args)  # sharex propagates to all
 
     if len(filenames) > 1:
         axes[0].legend(frameon=False, ncol=min(len(filenames), 2),
-                       loc='lower left', fontsize=font["legend"])
+                       loc=args.legendloc, fontsize=font["legend"],
+                       handlelength=1.2, handletextpad=0.4,
+                       labelspacing=0.2, borderpad=0.2, columnspacing=0.8)
 
     return fig
 
@@ -317,8 +360,8 @@ def plot_multi(datasets, data_arrays, ls_arrays, filenames, args, nrows=2, ncols
     fs = BASE_FONT
 
     # Global vmin/vmax across all datasets
-    vmin = args.vmin if args.vmin is not None else min(np.nanmin(da.values) for da in data_arrays)
-    vmax = args.vmax if args.vmax is not None else max(np.nanmax(da.values) for da in data_arrays)
+    vmin = args.vmin[0] if args.vmin is not None else min(np.nanmin(da.values) for da in data_arrays)
+    vmax = args.vmax[0] if args.vmax is not None else max(np.nanmax(da.values) for da in data_arrays)
 
     col_type = 'double'
     font = scale_fonts(col_type)
@@ -411,29 +454,46 @@ def main():
         print_dataset_info(ds)
         sys.exit(1)
 
-    if args.mode is None or args.alt is None:
-        ds = xr.open_dataset(args.ncfile[0])
+    # Detect vertical coordinate from the first file
+    ds_peek = xr.open_dataset(args.ncfile[0])
+    if "pressure" in ds_peek.coords:
+        vert_coord = "pressure"
+    elif "altitude" in ds_peek.coords:
+        vert_coord = "altitude"
+    else:
+        print("ERROR: Dataset has neither 'altitude' nor 'pressure' coordinate.")
+        sys.exit(1)
+
+    vert_arg = args.pressure if vert_coord == "pressure" else args.alt
+
+    if args.mode is None or vert_arg is None:
         if args.mode is None:
             print("ERROR: -mode is required.")
-            if "mode_lat" in ds.coords:
-                print(f"Available lat-dependent modes: {ds.mode_lat.values}")
-            if "mode_point" in ds.coords:
-                print(f"Available point modes:         {ds.mode_point.values}")
-        if args.alt is None:
-            print("ERROR: -alt is required.")
-            print(f"Available altitudes (km): {ds.altitude.values}")
+            if "mode_lat" in ds_peek.coords:
+                print(f"Available lat-dependent modes: {ds_peek.mode_lat.values}")
+            if "mode_point" in ds_peek.coords:
+                print(f"Available point modes:         {ds_peek.mode_point.values}")
+        if vert_arg is None:
+            if vert_coord == "pressure":
+                print("ERROR: -pressure is required (dataset uses pressure levels).")
+                print(f"Available pressure levels (Pa): {ds_peek.pressure.values}")
+            else:
+                print("ERROR: -alt is required.")
+                print(f"Available altitudes (km): {ds_peek.altitude.values}")
+        ds_peek.close()
         sys.exit(1)
+    ds_peek.close()
 
     varname = args.var
     mode = args.mode
-    alts = args.alt  # always a list
+    vert_levels = vert_arg  # always a list
 
     # Detect and validate ratio vars (e.g. "O/CO2")
     is_ratio = "/" in varname
     if is_ratio:
         ratio_parts = varname.split("/", 1)
         ds_check = xr.open_dataset(args.ncfile[0])
-        coord_names = {"time", "altitude", "latitude", "mode_lat", "mode_point",
+        coord_names = {"time", "altitude", "pressure", "latitude", "mode_lat", "mode_point",
                        "Ls", "nfiles", "average", "year", "sol"}
         available = sorted({
             v[:-6] if v.endswith("_point") else v
@@ -447,52 +507,55 @@ def main():
             print(f"Available variables: {available}")
             sys.exit(1)
 
-    # Load all (file, alt) combinations; detect mode type from first entry
+    # Load all (file, level) combinations; detect mode type from first entry
     all_loaded = {}
     for f in args.ncfile:
-        for alt in alts:
+        for vl in vert_levels:
             if is_ratio:
                 num, denom = ratio_parts
-                ds_n, da_n, ls, lat_dep = load_data(f, num,   mode, alt)
-                _,    da_d, _,  _       = load_data(f, denom, mode, alt)
-                all_loaded[(f, alt)] = (ds_n, da_n / da_d, ls, lat_dep)
+                ds_n, da_n, ls, lat_dep = load_data(f, num,   mode, vl, vert_coord)
+                _,    da_d, _,  _       = load_data(f, denom, mode, vl, vert_coord)
+                all_loaded[(f, vl)] = (ds_n, da_n / da_d, ls, lat_dep)
             else:
-                all_loaded[(f, alt)] = load_data(f, varname, mode, alt)
+                all_loaded[(f, vl)] = load_data(f, varname, mode, vl, vert_coord)
 
-    lat_dependent = all_loaded[(args.ncfile[0], alts[0])][3]
+    lat_dependent = all_loaded[(args.ncfile[0], vert_levels[0])][3]
 
     if lat_dependent:
-        # Lat-dependent: multiple alts not supported; use first alt only
-        if len(alts) > 1:
-            print("WARNING: Multiple altitudes not supported for lat-dependent modes. Using first.")
-        alt = alts[0]
+        # Lat-dependent: multiple levels not supported; use first only
+        if len(vert_levels) > 1:
+            print("WARNING: Multiple levels not supported for lat-dependent modes. Using first.")
+        vl = vert_levels[0]
         if len(args.ncfile) == 1:
-            ds, da, ls, _ = all_loaded[(args.ncfile[0], alt)]
+            ds, da, ls, _ = all_loaded[(args.ncfile[0], vl)]
             fig = plot_single(ds, da, ls, True, args)
         else:
-            datasets    = [all_loaded[(f, alt)][0] for f in args.ncfile]
-            data_arrays = [all_loaded[(f, alt)][1] for f in args.ncfile]
-            ls_arrays   = [all_loaded[(f, alt)][2] for f in args.ncfile]
-            lat_flags   = [all_loaded[(f, alt)][3] for f in args.ncfile]
+            datasets    = [all_loaded[(f, vl)][0] for f in args.ncfile]
+            data_arrays = [all_loaded[(f, vl)][1] for f in args.ncfile]
+            ls_arrays   = [all_loaded[(f, vl)][2] for f in args.ncfile]
+            lat_flags   = [all_loaded[(f, vl)][3] for f in args.ncfile]
             if not all(lat_flags):
                 print("ERROR: Mixed lat-dependent and point modes across files — cannot combine.")
                 sys.exit(1)
             fig = plot_multi(datasets, data_arrays, ls_arrays, args.ncfile, args)
     else:
-        # Point mode: support any number of files and altitudes
-        data_by_alt = []
-        for alt in alts:
-            data_arrays = [all_loaded[(f, alt)][1] for f in args.ncfile]
-            ls_arrays   = [all_loaded[(f, alt)][2] for f in args.ncfile]
-            data_by_alt.append((alt, data_arrays, ls_arrays))
-        fig = plot_point(data_by_alt, args.ncfile, args)
+        # Point mode: support any number of files and levels
+        data_by_vert = []
+        for vl in vert_levels:
+            data_arrays = [all_loaded[(f, vl)][1] for f in args.ncfile]
+            ls_arrays   = [all_loaded[(f, vl)][2] for f in args.ncfile]
+            data_by_vert.append((vl, data_arrays, ls_arrays))
+        fig = plot_point(data_by_vert, args.ncfile, args, vert_coord)
 
     if args.show:
         plt.show()
     else:
-        alt_str = "_".join(str(int(a)) for a in alts)
         safe_var = varname.replace("/", "_over_")
-        outfile = f"{safe_var}_{mode}_{alt_str}km.png"
+        if vert_coord == "altitude":
+            vert_str = "_".join(str(int(v)) for v in vert_levels) + "km"
+        else:
+            vert_str = "_".join(f"{v:.2e}" for v in vert_levels) + "Pa"
+        outfile = f"{safe_var}_{mode}_{vert_str}.png"
         plt.savefig(outfile, dpi=150)
         print(f"\nSaved: {outfile}")
 

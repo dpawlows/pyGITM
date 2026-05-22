@@ -40,6 +40,7 @@ def get_args(argv):
     maxv = None
     oco2 = 0
     pressure = 0
+    hmf2 = 0
     cmap = 'plasma'
 
     for arg in argv:
@@ -94,7 +95,7 @@ def get_args(argv):
                 IsContour = 1
                 IsFound = 1
 
-            m = re.match(r'-h',arg)
+            m = re.match(r'-h$',arg)
             if m:
                 help = 1
                 IsFound = 1
@@ -129,6 +130,11 @@ def get_args(argv):
                 pressure = 1
                 IsFound = 1
 
+            m = re.match(r'-hmf2',arg)
+            if m:
+                hmf2 = 1
+                IsFound = 1
+
             m = re.match(r'-cmap=(.*)',arg)
             if m:
                 cmap = m.group(1)
@@ -154,6 +160,7 @@ def get_args(argv):
             'maxv':maxv,
             'oco2':oco2,
             'pressure':pressure,
+            'hmf2':hmf2,
             'cmap':cmap}
 
     return args
@@ -193,6 +200,7 @@ if (args["help"]):
     print('   -cmap=name: colormap to use (default: plasma)')
     print('   -O/CO2 : plot O/CO2 number density ratio (requires 3DALL files)')
     print('   -pressure: calculate and plot pressure from neutral densities and temperature')
+    print('   -hmf2 : plot altitude of peak electron density [e-] as a function of lat/lon')
     print('   At end, list the files you want to plot')
 
     iVar = 0
@@ -207,6 +215,21 @@ filelist = args["filelist"]
 nFiles = len(filelist)
 
 cut = args["cut"]
+
+if args["hmf2"]:
+    cut = 'alt'
+    iE_ = None
+    for iV, vname in enumerate(header["vars"]):
+        if vname.strip() == '[e-]':
+            iE_ = iV
+            break
+    if iE_ is None:
+        print("Error: could not find [e-] in file variables.")
+        print("Available variables:")
+        for iV, v in enumerate(header["vars"]):
+            print("  {:3d}  {}".format(iV, v))
+        exit()
+    print("Found [e-] at var index {}".format(iE_))
 
 pressure_density_indices = []
 pressure_temp_index = None
@@ -253,6 +276,8 @@ if args["oco2"]:
     vars = [0, 1, 2, iO_, iCO2_]
 elif args["pressure"]:
     vars = [0, 1, 2] + pressure_density_indices + [pressure_temp_index]
+elif args["hmf2"]:
+    vars = [0, 1, 2, iE_]
 else:
     vars = [0,1,2]
     vars.append(args["var"])
@@ -290,6 +315,8 @@ if args["oco2"]:
     Var = r'$[O]/[CO_2]$'
 elif args["pressure"]:
     Var = 'Pressure (Pa)'
+elif args["hmf2"]:
+    Var = 'HmF2 (km)'
 else:
     Var = header["vars"][args["var"]]
     Var = Var.replace('!U','^')
@@ -312,6 +339,12 @@ for file in filelist:
         _dbg = data[pressure_temp_index]
         print("Data shape:", _dbg.shape)
         print("Min/Max Temperature:", np.nanmin(_dbg), np.nanmax(_dbg))
+        print("NaN count:", np.sum(np.isnan(_dbg)))
+        print("Inf count:", np.sum(np.isinf(_dbg)))
+    elif args["hmf2"]:
+        _dbg = data[iE_]
+        print("Data shape:", _dbg.shape)
+        print("Min/Max [e-]:", np.nanmin(_dbg), np.nanmax(_dbg))
         print("NaN count:", np.sum(np.isnan(_dbg)))
         print("Inf count:", np.sum(np.isinf(_dbg)))
     else:
@@ -376,6 +409,9 @@ for file in filelist:
             AllData2D.append(ratio[:,iLat,:])
         if (cut == 'lon'):
             AllData2D.append(ratio[iLon,:,:])
+    elif args["hmf2"]:
+        iAlt_peak = np.argmax(data[iE_], axis=2)
+        AllData2D.append(Alts[iAlt_peak])
     elif (args["tec"]):
         iAlt = 2
         tec = np.zeros((nLons, nLats))
@@ -491,6 +527,8 @@ if args["oco2"]:
     file = "O_CO2_ratio_" + cut
 elif args["pressure"]:
     file = "pressure_" + cut
+elif args["hmf2"]:
+    file = "hmf2_alt"
 else:
     file = "var%2.2d_" % args["var"]
     file = file+cut
@@ -538,7 +576,10 @@ for time in AllTimes:
     if (cut == 'alt'):
         ax.set_ylabel('Latitude (deg)')
         ax.set_xlabel('Longitude (deg)')
-        title = time.strftime('%b %d, %Y %H:%M:%S')+'; Alt : '+"%.2f" % Alt + ' km'
+        if args["hmf2"]:
+            title = time.strftime('%b %d, %Y %H:%M:%S') + '; HmF2'
+        else:
+            title = time.strftime('%b %d, %Y %H:%M:%S')+'; Alt : '+"%.2f" % Alt + ' km'
         ax.set_aspect(1.0)
 
     if (cut == 'lat'):

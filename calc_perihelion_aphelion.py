@@ -44,6 +44,26 @@ VAR_LABELS = {
 }
 
 
+F107_FILE = "~/UpperAtmosphere/F107/radio_flux_adjusted_observation.txt"
+
+
+def load_f107(filepath):
+    """Return a dict mapping datetime(date) -> f10.7_c value."""
+    f107 = {}
+    with open(os.path.expanduser(filepath)) as fh:
+        for line in fh:
+            if line.startswith('#') or not line.strip():
+                if line.startswith('#  year month'):
+                    header = line.split()[1:]
+                    f_index = header.index('f10.7_c')
+                continue
+            parts = line.split()
+            key = datetime(int(parts[0]), int(parts[1]), int(parts[2]))
+            f107[key] = float(parts[f_index])  # f10.7_c column
+
+    return f107
+
+
 def mars_sun_distance(M, vMinusM):
     """
     Compute Mars-Sun distance in AU.
@@ -76,6 +96,8 @@ def main():
     parser.add_argument("-show", action="store_true", help="Display plot interactively")
     parser.add_argument("-data", action="store_true",
                         help="Write perihelion/aphelion ratios to a text file")
+    parser.add_argument("-f107", action="store_true",
+                        help="Look up F10.7_c solar flux for perihelion/aphelion dates")
 
     args = parser.parse_args()
 
@@ -129,6 +151,22 @@ def main():
 
     print(f"\nAphelion / perihelion distance ratio : {r_aph / r_peri:.4f}")
     print(f"Perihelion / aphelion flux ratio     : {(r_aph / r_peri)**2:.4f}")
+
+    if args.f107:
+        f107_data = load_f107(F107_FILE)
+        peri_day = dates[i_peri].replace(hour=0, minute=0, second=0)
+        aph_day  = dates[i_aph].replace(hour=0, minute=0, second=0)
+        peri_f107 = f107_data.get(peri_day)
+        aph_f107  = f107_data.get(aph_day)
+        print(f"\nF10.7_c (solar flux, sfu):")
+        if peri_f107 is not None:
+            print(f"  Perihelion : {peri_f107:.1f}")
+        else:
+            print(f"  Perihelion : not found in F107 file for {peri_day.date()}")
+        if aph_f107 is not None:
+            print(f"  Aphelion   : {aph_f107:.1f}")
+        else:
+            print(f"  Aphelion   : not found in F107 file for {aph_day.date()}")
 
     # ------------------------------------------------------------------
     # Variable ratio plot (only if -var and -mode are given)

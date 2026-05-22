@@ -23,6 +23,7 @@ COL_WIDTH_CM = {"single": 8, "double": 16}
 BASE_FONT    = {"label": 9, "tick": 8, "legend": 8, "text": 8}
 
 LINESTYLES = ['-', '--', '-.', ':', (0, (3, 1, 1, 1)), (0, (5, 1))]
+COLORS     = [f'C{i}' for i in range(10)]
 
 VAR_LABELS = {
     "CO2":         r"[CO$_2$]",
@@ -90,10 +91,11 @@ def main():
             mode_out    = mode
 
         label = os.path.basename(fpath).replace("_regress.txt", "")
+        color = COLORS[i % len(COLORS)]
         ax.plot(slopes, alts, linestyle=LINESTYLES[i % len(LINESTYLES)],
-                color='k', label=label)
+                color=color, label=label)
         ax.errorbar(slopes, alts, xerr=2 * std_errs,
-                    fmt='none', color='k',
+                    fmt='none', color=color,
                     capsize=2, capthick=0.8, elinewidth=0.8)
 
     varlabel = VAR_LABELS.get(varname_out, varname_out)

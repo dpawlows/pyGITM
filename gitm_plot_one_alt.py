@@ -288,11 +288,11 @@ if (args["winds"]):
     iUp_ = None
     for iV, vname in enumerate(header["vars"]):
         vstrip = vname.strip()
-        if '(east)' in vstrip:
+        if 'V!Dn!N(east)' in vstrip:
             iEast_ = iV
-        if '(north)' in vstrip:
+        if 'V!Dn!N(north)' in vstrip:
             iNorth_ = iV
-        if '(up)' in vstrip:
+        if 'V!Dn!N(up)' in vstrip:
             iUp_ = iV
     if iEast_ is None or iNorth_ is None or iUp_ is None:
         print("Error: could not find wind variables (east={}, north={}, up={}) in header.".format(iEast_, iNorth_, iUp_))

@@ -12,6 +12,7 @@ from matplotlib import  ticker
 from gitm_routines import *
 import sys
 import marstiming as mt
+import netCDF4 as nc
 from gitmconcurrent import process_batch
 
 
@@ -49,6 +50,9 @@ def get_args(argv):
     parser.add_argument('-maxi', type=float)
     parser.add_argument('-alog', action='store_true')
     parser.add_argument('-oplotmax', action='store_true')
+    parser.add_argument('-lsavg', type=float, default=-1)
+    parser.add_argument('-savedata', action='store_true')
+    parser.add_argument('-pressure', type=float, default=0.0)
     parser.add_argument('-h', '-help', action='store_true', dest='help')
     parser.add_argument('filelist', nargs='*')
 
@@ -69,7 +73,10 @@ def get_args(argv):
             'average':parsed.average,
             'mini':parsed.mini,
             'maxi':parsed.maxi,
-            'oplotmax':parsed.oplotmax}
+            'oplotmax':parsed.oplotmax,
+            'lsavg':parsed.lsavg,
+            'savedata':parsed.savedata,
+            'pressure':parsed.pressure}
 
     return args
 
@@ -78,6 +85,26 @@ if args['filelist']:
     header = read_gitm_header(args["filelist"])
 else:
     header = {'vars': []}
+
+boltzmann = 1.380649e-23
+pressure_mode = args['pressure'] > 0
+pressure_density_indices = []
+pressure_temp_index = None
+
+if pressure_mode:
+    try:
+        pressure_temp_index = header['vars'].index('Temperature')
+    except ValueError:
+        print('Pressure mode requires an ALL file that includes Temperature.')
+        exit(1)
+    pressure_density_indices = [
+        i for i, v in enumerate(header['vars'])
+        if v.startswith('[') and v.endswith(']')
+    ]
+    if not pressure_density_indices:
+        print('Pressure mode requires neutral species number density variables in the ALL file.')
+        exit(1)
+
 averaging = False
 if args['average'] > 0:
     averaging = True
@@ -120,7 +147,11 @@ if (args["help"]):
     print('   -lt=localtime: nearest localtime to plot')
     print('   -average=time: average a local time plot across time seconds')
     print('   -alog: plot the log of the variable')
+    print('   -oplotmax: overplot the altitude of the maximum value')
+    print('   -lsavg=degrees: average data into Ls bins of the given width')
+    print('   -savedata: save plotted data to a NetCDF (.nc) file')
     print('   -diff=backgroundFiles: plot the difference between 2 sets of files')
+    print('   -pressure=Pa: plot altitude of the given pressure level vs Ls (cut=loc only, requires Temperature and neutral species in ALL file)')
     print('   Non-KW args: files.')
 
     iVar = 0
@@ -155,12 +186,15 @@ if args['diff'] != '0':
         print('Lengths: {}   {}'.format(nFiles,nBackFiles))
         exit(1)
 
-vars = [0, 1, 2] + [int(v) for v in args["var"].split(',')]
-Var = [header['vars'][int(i)] for i in args['var'].split(',')]
-nvars = len(args['var'].split(','))
-
-#We want to store data for multiple variables, so we use a dict where var indices are the keys
-AllData = {a:[] for a in args['var'].split(',')}
+if pressure_mode:
+    vars = [0, 1, 2] + pressure_density_indices + [pressure_temp_index]
+    PressureAlts = []
+else:
+    vars = [0, 1, 2] + [int(v) for v in args["var"].split(',')]
+    Var = [header['vars'][int(i)] for i in args['var'].split(',')]
+    nvars = len(args['var'].split(','))
+    #We want to store data for multiple variables, so we use a dict where var indices are the keys
+    AllData = {a:[] for a in args['var'].split(',')}
 sum = []
 AllTimes = []
 j = 0
@@ -170,6 +204,8 @@ newday = True
 # Read all files in parallel
 results = process_batch(filelist, vars)
 AllTimes = [r['time'] for r in results]
+AllLs = np.array([mt.getMarsSolarGeometry([t.year,t.month,t.day,t.hour,t.minute,t.second]).ls
+                  for t in AllTimes])
 
 if diff:
     bg_results = process_batch(backgroundFilelist, vars)
@@ -189,15 +225,25 @@ for j, result in enumerate(results):
     if args['cut'] == 'loc':
         ilon = find_nearest_index(lon, plon)
         ilat = find_nearest_index(lat, plat)
-        for ivar in args['var'].split(','):
-            v = int(ivar)
-            if diff:
-                temp = (result[v][ilon,ilat,ialt1:ialt2+1] - bg[v][ilon,ilat,ialt1:ialt2+1]) / \
-                    bg[v][ilon,ilat,ialt1:ialt2+1] * 100.0
-            else:
-                temp = result[v][ilon,ilat,ialt1:ialt2+1]
+        if pressure_mode:
+            number_density = np.zeros(ialt2 - ialt1 + 1)
+            for idens in pressure_density_indices:
+                number_density += result[idens][ilon, ilat, ialt1:ialt2+1]
+            temp_profile = result[pressure_temp_index][ilon, ilat, ialt1:ialt2+1]
+            pressure_profile = number_density * boltzmann * temp_profile
+            alt_profile = alt[ialt1:ialt2+1]
+            # pressure decreases with altitude; reverse so x is monotonically increasing for interp
+            PressureAlts.append(np.interp(args['pressure'], pressure_profile[::-1], alt_profile[::-1]))
+        else:
+            for ivar in args['var'].split(','):
+                v = int(ivar)
+                if diff:
+                    temp = (result[v][ilon,ilat,ialt1:ialt2+1] - bg[v][ilon,ilat,ialt1:ialt2+1]) / \
+                        bg[v][ilon,ilat,ialt1:ialt2+1] * 100.0
+                else:
+                    temp = result[v][ilon,ilat,ialt1:ialt2+1]
 
-            AllData[ivar].append(temp)
+                AllData[ivar].append(temp)
 
 
     if args['cut'] == 'sza':
@@ -273,15 +319,61 @@ for j, result in enumerate(results):
                     AllData[ivar].append(temp)
 
 
-for ivar in args['var'].split(','):
-    AllData[ivar] = np.array(AllData[ivar])
+if pressure_mode:
+    PressureAlts = np.array(PressureAlts)
+else:
+    for ivar in args['var'].split(','):
+        AllData[ivar] = np.array(AllData[ivar])
+
+lsAveraging = args['lsavg'] > 0
+if lsAveraging:
+    lsavg_deg = args['lsavg']
+    bin_edges = np.arange(0, 360 + lsavg_deg, lsavg_deg)
+    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    valid_centers = []
+    if pressure_mode:
+        ls_avg_pressure = []
+        for lo, hi, center in zip(bin_edges[:-1], bin_edges[1:], bin_centers):
+            mask = (AllLs >= lo) & (AllLs < hi)
+            if mask.sum() > 0:
+                valid_centers.append(center)
+                ls_avg_pressure.append(PressureAlts[mask].mean())
+        PressureAlts = np.array(ls_avg_pressure)
+    else:
+        ls_avg_data = {ivar: [] for ivar in args['var'].split(',')}
+        for lo, hi, center in zip(bin_edges[:-1], bin_edges[1:], bin_centers):
+            mask = (AllLs >= lo) & (AllLs < hi)
+            if mask.sum() > 0:
+                valid_centers.append(center)
+                for ivar in args['var'].split(','):
+                    ls_avg_data[ivar].append(AllData[ivar][mask].mean(axis=0))
+        for ivar in args['var'].split(','):
+            AllData[ivar] = np.array(ls_avg_data[ivar])
+    LsTimes = np.array(valid_centers)
 
 Alts = alt[ialt1:ialt2+1]
+
+if pressure_mode:
+    xdata = LsTimes if lsAveraging else AllLs
+    fig, ax = plt.subplots(1, 1, figsize=(8, 4.5))
+    ax.plot(xdata, PressureAlts)
+    ax.set_xlabel('Ls (degrees)')
+    ax.set_ylabel('Altitude (km)')
+    ax.set_title('Altitude of {:.2e} Pa pressure level  (Lat={}, Lon={})'.format(
+        args['pressure'], plat, plon))
+    pp.tight_layout()
+    stime = AllTimes[0].strftime('%Y%m%d_%H%M%S')
+    outfile = 'gitm_loc_lat{}_lon{}_pressure{}_{}.png'.format(plat, plon, args['pressure'], stime)
+    print('Writing file: {}'.format(outfile))
+    pp.savefig(outfile)
+    exit()
 
 cmap = 'plasma'
 i=0
 
-if averaging:
+if lsAveraging:
+    Times = LsTimes
+elif averaging:
     averageDayStart = ((np.asarray(indexDayStart[0:-1])+np.asarray(indexDayStart[1:]))/2).astype(int)
     Times = [AllTimes[i] for i in averageDayStart]
 else:
@@ -362,7 +454,18 @@ for ivar in args['var'].split(','):
         pp.colorbar(cont,ax=thisax,label=Var[i])
 
         if args['oplotmax']:
-            alt_of_max = Alts[np.argmax(AllData2D, axis=1)]
+            def parabolic_peak_alt(profile, alts):
+                i = np.argmax(profile)
+                if i == 0 or i == len(profile) - 1:
+                    return alts[i]
+                y0, y1, y2 = profile[i-1], profile[i], profile[i+1]
+                x0, x1, x2 = alts[i-1], alts[i], alts[i+1]
+                denom = (x0 - x1) * (x0 - x2) * (x1 - x2)
+                a = (x2*(y1-y0) + x1*(y0-y2) + x0*(y2-y1)) / denom
+                b = (x2**2*(y0-y1) + x1**2*(y2-y0) + x0**2*(y1-y2)) / denom
+                return -b / (2*a)
+            alt_of_max = np.array([parabolic_peak_alt(AllData2D[t, :], Alts)
+                                   for t in range(AllData2D.shape[0])])
             thisax.plot(Times, alt_of_max, color='black', linewidth=1.5)
 
 
@@ -374,16 +477,19 @@ for ivar in args['var'].split(','):
 
 
 
-pp.xlabel('Time (UT)')
-time_span = (AllTimes[-1] - AllTimes[0]).total_seconds() / 86400.0
-if time_span > 1.0:
-    myFmt = mdates.DateFormatter("%m/%d")
-    thisax.xaxis.set_major_formatter(myFmt)
-    fig.autofmt_xdate(rotation=45, ha='center')
+if lsAveraging:
+    pp.xlabel('Ls (degrees)')
 else:
-    myFmt = mdates.DateFormatter("%H:%M:%S")
-    thisax.xaxis.set_major_formatter(myFmt)
-    fig.autofmt_xdate()
+    pp.xlabel('Time (UT)')
+    time_span = (AllTimes[-1] - AllTimes[0]).total_seconds() / 86400.0
+    if time_span > 1.0:
+        myFmt = mdates.DateFormatter("%m/%d")
+        thisax.xaxis.set_major_formatter(myFmt)
+        fig.autofmt_xdate(rotation=45, ha='center')
+    else:
+        myFmt = mdates.DateFormatter("%H:%M:%S")
+        thisax.xaxis.set_major_formatter(myFmt)
+        fig.autofmt_xdate()
 
 var_str = args['var'].replace(',', '_')
 stime = AllTimes[0].strftime('%Y%m%d_%H%M%S')
@@ -397,3 +503,43 @@ else:
     outfile = 'gitm_{}_var{}_{}.png'.format(args['cut'], var_str, stime)
 print('Writing file: {}'.format(outfile))
 pp.savefig(outfile)
+
+if args['savedata']:
+    ncfile = outfile.replace('.png', '.nc')
+    print('Writing data file: {}'.format(ncfile))
+    reference_time = 'seconds since 1970-01-01 00:00:00 UTC'
+    with nc.Dataset(ncfile, 'w', format='NETCDF4') as ds:
+        ds.createDimension('alt', len(Alts))
+        alt_var = ds.createVariable('alt', 'f4', ('alt',))
+        alt_var.units = 'km'
+        alt_var.long_name = 'Altitude'
+        alt_var[:] = Alts
+
+        if lsAveraging:
+            ds.createDimension('ls', len(Times))
+            xdim = 'ls'
+            ls_var = ds.createVariable('ls', 'f4', ('ls',))
+            ls_var.units = 'degrees'
+            ls_var.long_name = 'Solar Longitude'
+            ls_var[:] = Times
+        else:
+            ds.createDimension('time', len(Times))
+            xdim = 'time'
+            time_var = ds.createVariable('time', 'f8', ('time',))
+            time_var.units = reference_time
+            time_var.calendar = 'standard'
+            time_var[:] = nc.date2num(list(Times), units=reference_time, calendar='standard')
+            ls_var = ds.createVariable('ls', 'f4', ('time',))
+            ls_var.units = 'degrees'
+            ls_var.long_name = 'Solar Longitude'
+            ls_var[:] = AllLs
+
+        for idx, ivar in enumerate(args['var'].split(',')):
+            data = AllData[ivar]
+            varname = 'var_{}'.format(ivar)
+            if lineplot:
+                v = ds.createVariable(varname, 'f8', (xdim,))
+            else:
+                v = ds.createVariable(varname, 'f8', (xdim, 'alt'))
+            v.long_name = Var[idx]
+            v[:] = data

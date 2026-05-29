@@ -61,7 +61,9 @@ def readMarsGITM(
     loc=None, zonal=False,
     lsBinWidth=None,
     oco2=False,
-    verbose=False
+    verbose=False,
+    pressure_density_indices=None,
+    pressure_temp_index=None,
     ):
 
     try:
@@ -142,8 +144,23 @@ def readMarsGITM(
             data["vars"].append("O/CO$_2$")
             local_vars.append(new_idx)
 
+        # ---- Pressure (computed from raw 3D data before any mode reduction) ----
+        _pressure_skip = set()
+        if pressure_density_indices is not None and pressure_temp_index is not None:
+            _kb = 1.380649e-23
+            number_density = np.zeros_like(data[pressure_density_indices[0]])
+            for _i in pressure_density_indices:
+                number_density += data[_i]
+            result['pressure'] = number_density * _kb * data[pressure_temp_index]
+            result['lon'] = lon
+            result['lat'] = lat
+            result['sza'] = sza
+            _pressure_skip = set(pressure_density_indices) | {pressure_temp_index}
+
         # ---- Variable processing ---------------------------------------
         for v in local_vars[3:]:
+            if v in _pressure_skip:
+                continue
             var = data[v]
 
             if mode == "sza_average":
@@ -382,16 +399,16 @@ def group_by_sol_average(raw_results,zonal,lsBinWidth = None):
 
 
 def process_batch(files, vars,smin=None,smax=None,zonal=False,average=False,lsBinWidth=None, oco2=False,max_workers=None,
-    verbose=False,serial=False):
+    verbose=False,serial=False,pressure_density_indices=None,pressure_temp_index=None):
     """Function to process a batch of files in parallel."""
-    
+
     if len(vars) < 4:
         raise ValueError("Expected at least 4 variable indices: lon, lat, alt, and 1+ data var")
-    
+
     if average == "ls" and lsBinWidth is None:
         raise ValueError("lsBinWidth must be set when average='ls'")
     reader = partial(readMarsGITM, vars=vars, smin=smin, smax=smax,zonal=zonal,lsBinWidth=lsBinWidth,oco2=oco2,
-        verbose=verbose)
+        verbose=verbose,pressure_density_indices=pressure_density_indices,pressure_temp_index=pressure_temp_index)
 
     # ------------------------------------------------------------
     # SERIAL PATH (debug-friendly)

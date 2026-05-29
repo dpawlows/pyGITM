@@ -53,6 +53,8 @@ def get_args(argv):
     parser.add_argument('-lsavg', type=float, default=-1)
     parser.add_argument('-savedata', action='store_true')
     parser.add_argument('-pressure', type=float, default=0.0)
+    parser.add_argument('-ymin', type=float, default=None)
+    parser.add_argument('-ymax', type=float, default=None)
     parser.add_argument('-h', '-help', action='store_true', dest='help')
     parser.add_argument('filelist', nargs='*')
 
@@ -76,7 +78,9 @@ def get_args(argv):
             'oplotmax':parsed.oplotmax,
             'lsavg':parsed.lsavg,
             'savedata':parsed.savedata,
-            'pressure':parsed.pressure}
+            'pressure':parsed.pressure,
+            'ymin':parsed.ymin,
+            'ymax':parsed.ymax}
 
     return args
 
@@ -100,6 +104,7 @@ if pressure_mode:
     pressure_density_indices = [
         i for i, v in enumerate(header['vars'])
         if v.startswith('[') and v.endswith(']')
+        and '+' not in v and '-' not in v and '00' not in v
     ]
     if not pressure_density_indices:
         print('Pressure mode requires neutral species number density variables in the ALL file.')
@@ -202,7 +207,14 @@ indexDayStart = []
 newday = True
 
 # Read all files in parallel
-results = process_batch(filelist, vars)
+
+if pressure_mode:
+    results = process_batch(filelist, vars,
+                            pressure_density_indices=pressure_density_indices,
+                            pressure_temp_index=pressure_temp_index)
+else:
+    results = process_batch(filelist, vars)
+
 AllTimes = [r['time'] for r in results]
 AllLs = np.array([mt.getMarsSolarGeometry([t.year,t.month,t.day,t.hour,t.minute,t.second]).ls
                   for t in AllTimes])
@@ -226,14 +238,8 @@ for j, result in enumerate(results):
         ilon = find_nearest_index(lon, plon)
         ilat = find_nearest_index(lat, plat)
         if pressure_mode:
-            number_density = np.zeros(ialt2 - ialt1 + 1)
-            for idens in pressure_density_indices:
-                number_density += result[idens][ilon, ilat, ialt1:ialt2+1]
-            temp_profile = result[pressure_temp_index][ilon, ilat, ialt1:ialt2+1]
-            pressure_profile = number_density * boltzmann * temp_profile
-            alt_profile = alt[ialt1:ialt2+1]
-            # pressure decreases with altitude; reverse so x is monotonically increasing for interp
-            PressureAlts.append(np.interp(args['pressure'], pressure_profile[::-1], alt_profile[::-1]))
+            pressure_profile = result['pressure'][ilon, ilat, ialt1:ialt2+1]
+            PressureAlts.append(np.interp(args['pressure'], pressure_profile[::-1], alt[ialt1:ialt2+1][::-1]))
         else:
             for ivar in args['var'].split(','):
                 v = int(ivar)
@@ -249,7 +255,11 @@ for j, result in enumerate(results):
     if args['cut'] == 'sza':
         sza = result['sza']  # 2D (nlon x nlat), computed by readMarsGITM
         mask = (sza >= smin) & (sza <= smax)
-        for ivar in args['var'].split(','):
+        if pressure_mode:
+            pressure_profile = result['pressure'][:,:,ialt1:ialt2+1][mask].mean(axis=0)
+            PressureAlts.append(np.interp(args['pressure'], pressure_profile[::-1], alt[ialt1:ialt2+1][::-1]))
+
+        for ivar in args['var'].split(',') if not pressure_mode else []:
             v = int(ivar)
             if diff:
 
@@ -321,6 +331,10 @@ for j, result in enumerate(results):
 
 if pressure_mode:
     PressureAlts = np.array(PressureAlts)
+    # Sort by Ls so the filter and plot are in order
+    sort_idx = np.argsort(AllLs)
+    AllLs = AllLs[sort_idx]
+    PressureAlts = PressureAlts[sort_idx]
 else:
     for ivar in args['var'].split(','):
         AllData[ivar] = np.array(AllData[ivar])
@@ -328,19 +342,19 @@ else:
 lsAveraging = args['lsavg'] > 0
 if lsAveraging:
     lsavg_deg = args['lsavg']
-    bin_edges = np.arange(0, 360 + lsavg_deg, lsavg_deg)
-    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-    valid_centers = []
     if pressure_mode:
-        ls_avg_pressure = []
-        for lo, hi, center in zip(bin_edges[:-1], bin_edges[1:], bin_centers):
-            mask = (AllLs >= lo) & (AllLs < hi)
-            if mask.sum() > 0:
-                valid_centers.append(center)
-                ls_avg_pressure.append(PressureAlts[mask].mean())
-        PressureAlts = np.array(ls_avg_pressure)
+        from scipy.signal import savgol_filter
+        ls_spacing = np.median(np.diff(AllLs))
+        window_samples = int(round(lsavg_deg / ls_spacing))
+        if window_samples % 2 == 0:
+            window_samples += 1
+        window_samples = max(window_samples, 3)
+        PressureAlts = savgol_filter(PressureAlts, window_samples, 3)
     else:
+        bin_edges = np.arange(0, 360 + lsavg_deg, lsavg_deg)
+        bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
         ls_avg_data = {ivar: [] for ivar in args['var'].split(',')}
+        valid_centers = []
         for lo, hi, center in zip(bin_edges[:-1], bin_edges[1:], bin_centers):
             mask = (AllLs >= lo) & (AllLs < hi)
             if mask.sum() > 0:
@@ -349,21 +363,28 @@ if lsAveraging:
                     ls_avg_data[ivar].append(AllData[ivar][mask].mean(axis=0))
         for ivar in args['var'].split(','):
             AllData[ivar] = np.array(ls_avg_data[ivar])
-    LsTimes = np.array(valid_centers)
+        LsTimes = np.array(valid_centers)
 
 Alts = alt[ialt1:ialt2+1]
 
 if pressure_mode:
-    xdata = LsTimes if lsAveraging else AllLs
+    xdata = AllLs  # always Ls-sorted; savgol applied in-place above if lsAveraging
     fig, ax = plt.subplots(1, 1, figsize=(8, 4.5))
     ax.plot(xdata, PressureAlts)
     ax.set_xlabel('Ls (degrees)')
     ax.set_ylabel('Altitude (km)')
-    ax.set_title('Altitude of {:.2e} Pa pressure level  (Lat={}, Lon={})'.format(
-        args['pressure'], plat, plon))
+    if args['cut'] == 'loc':
+        subtitle = 'Lat={}, Lon={}'.format(plat, plon)
+    elif args['cut'] == 'sza':
+        subtitle = 'SZA={}-{}'.format(smin, smax)
+    else:
+        subtitle = 'LT={}, Lat={}'.format(args['lt'], plat)
+    ax.set_title('Altitude of {:.2e} Pa pressure level  ({})'.format(args['pressure'], subtitle))
+    if args['ymin'] is not None or args['ymax'] is not None:
+        ax.set_ylim(args['ymin'], args['ymax'])
     pp.tight_layout()
     stime = AllTimes[0].strftime('%Y%m%d_%H%M%S')
-    outfile = 'gitm_loc_lat{}_lon{}_pressure{}_{}.png'.format(plat, plon, args['pressure'], stime)
+    outfile = 'gitm_{}_pressure{}_{}.png'.format(args['cut'], args['pressure'], stime)
     print('Writing file: {}'.format(outfile))
     pp.savefig(outfile)
     exit()

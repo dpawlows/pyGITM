@@ -34,6 +34,7 @@ def get_args(argv):
     cut = 'alt'
     help = 0
     winds = 0
+    vwinds = 0
     norm = 0
     diff = 0
     minv = None
@@ -110,6 +111,16 @@ def get_args(argv):
                 maxv = float(m.group(1))
                 IsFound = 1  
 
+            m = re.match(r'-vwinds?=(.*)',arg)
+            if m:
+                vwinds = 'directiononly' if m.group(1)=='directiononly' else 1
+                IsFound = 1
+
+            m = re.match(r'-vwinds?$',arg)
+            if m:
+                vwinds = 1
+                IsFound = 1
+
             m = re.match(r'-wind',arg)
             if m:
                 winds = 1
@@ -150,6 +161,7 @@ def get_args(argv):
             'tec':tec,
             'help':help,
             'winds':winds,
+            'vwinds':vwinds,
             'norm':norm,
             'alt':alt,
             'lat':lat,
@@ -194,7 +206,9 @@ if (args["help"]):
     print('   -alog : plot the log of the variable')
     print('   -contour: plot a contour instead of a pseudocolor')
     print('   -winds: overplot winds')
-    print('   -norm : normalize wind vectors to show direction only (use with -winds)')
+    print('   -vwinds: overplot vertical wind vectors only (requires -cut=lat or -cut=lon)')
+    print('   -vwinds=directiononly: like -vwinds, but all vectors are drawn the same length')
+    print('   -norm : normalize wind vectors to show direction only (use with -winds/-vwinds)')
     print('   -min=min: minimum value to plot')
     print('   -max=max: maximum value to plot')
     print('   -cmap=name: colormap to use (default: plasma)')
@@ -282,7 +296,15 @@ else:
     vars = [0,1,2]
     vars.append(args["var"])
 
-if (args["winds"]):
+if (args["winds"] and args["vwinds"]):
+    print("Error: -winds and -vwinds cannot be used together.")
+    exit()
+
+if (args["vwinds"] and cut == 'alt'):
+    print("Error: -vwinds is only supported for -cut=lat or -cut=lon.")
+    exit()
+
+if (args["winds"] or args["vwinds"]):
     iEast_ = None
     iNorth_ = None
     iUp_ = None
@@ -297,15 +319,19 @@ if (args["winds"]):
     if iEast_ is None or iNorth_ is None or iUp_ is None:
         print("Error: could not find wind variables (east={}, north={}, up={}) in header.".format(iEast_, iNorth_, iUp_))
         exit()
-    if (cut=='alt'):
-        iUx_ = iEast_
-        iUy_ = iNorth_
-    if (cut=='lat'):
-        iUx_ = iEast_
+    if (args["vwinds"]):
+        iUx_ = iUp_
         iUy_ = iUp_
-    if (cut=='lon'):
-        iUx_ = iNorth_
-        iUy_ = iUp_
+    else:
+        if (cut=='alt'):
+            iUx_ = iEast_
+            iUy_ = iNorth_
+        if (cut=='lat'):
+            iUx_ = iEast_
+            iUy_ = iUp_
+        if (cut=='lon'):
+            iUx_ = iNorth_
+            iUy_ = iUp_
     vars.append(iUx_)
     vars.append(iUy_)
     AllWindsX = []
@@ -363,8 +389,10 @@ for file in filelist:
             if (len(Alts) > 1):
                 if (args["alt"] > Alts[nAlts-3]):
                     iAlt = nAlts-3
+                elif (args["alt"] <= Alts[0]):
+                    iAlt = 0
                 else:
-                    iAlt = 2
+                    iAlt = 0
                     while (Alts[iAlt] < args["alt"]):
                         iAlt=iAlt+1
             else:
@@ -436,7 +464,7 @@ for file in filelist:
             for idens in pressure_density_indices:
                 number_density += data[idens][iLon,:,:]
             AllData2D.append(number_density * boltzmann * data[pressure_temp_index][iLon,:,:])
-        if (args["winds"]):
+        if (args["winds"] or args["vwinds"]):
             if (cut == 'alt'):
                 AllWindsX.append(data[iUx_][:,:,iAlt])
                 AllWindsY.append(data[iUy_][:,:,iAlt])
@@ -453,7 +481,7 @@ for file in filelist:
             AllData2D.append(data[args["var"]][:,iLat,:])
         if (cut == 'lon'):
             AllData2D.append(data[args["var"]][iLon,:,:])
-        if (args["winds"]):
+        if (args["winds"] or args["vwinds"]):
             if (cut == 'alt'):
                 AllWindsX.append(data[iUx_][:,:,iAlt])
                 AllWindsY.append(data[iUy_][:,:,iAlt])
@@ -467,7 +495,7 @@ for file in filelist:
 
 
 AllData2D = np.array(AllData2D)
-if (args["winds"]):
+if (args["winds"] or args["vwinds"]):
     AllWindsX = np.array(AllWindsX)
     AllWindsY = np.array(AllWindsY)
 
@@ -550,10 +578,12 @@ for time in AllTimes:
     cmap = args['cmap']
 
     d2d = np.transpose(AllData2D[i])
-    if (args["winds"]):
+    if (args["winds"] or args["vwinds"]):
         Ux2d = np.transpose(AllWindsX[i])
         Uy2d = np.transpose(AllWindsY[i])
-        if (args["norm"]):
+        if (args["vwinds"]):
+            Ux2d = np.zeros_like(Uy2d)
+        if (args["norm"] or args["vwinds"]=='directiononly'):
             mag = np.sqrt(Ux2d**2 + Uy2d**2)
             mag = np.where(mag == 0, np.nan, mag)
             Ux2d = Ux2d / mag
@@ -568,7 +598,7 @@ for time in AllTimes:
     else:
         cax = ax.pcolor(xPos, yPos, d2d, vmin=mini, vmax=maxi, shading='auto', cmap=cmap)
 
-    if (args["winds"]):
+    if (args["winds"] or args["vwinds"]):
         ax.quiver(xPos,yPos,Ux2d,Uy2d)
     ax.set_ylim([minY,maxY])
     ax.set_xlim([minX,maxX])

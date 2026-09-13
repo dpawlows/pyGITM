@@ -254,14 +254,22 @@ def process_one_file(file, minalt, coordinates,header):
 
 
 
+def safe_process_one_file(file, minalt, coordinates, header):
+    try:
+        process_one_file(file, minalt, coordinates, header)
+        return None
+    except Exception as e:
+        return (file, repr(e))
+
+
 def main():
-    
+
     args = get_args(sys.argv)
     filelist = args['filelist']
     coordinates = args['coordinates']
     minalt = args['minalt']
     run_serial = args['serial']
- 
+
 
     if coordinates not in coordoptions:
         print(f'{coordinates} is not a coordinate option')
@@ -277,15 +285,20 @@ def main():
         return
 
     header = read_gitm_header(filelist)
-    worker = partial(process_one_file, minalt=minalt, coordinates=coordinates,header=header)
+    worker = partial(safe_process_one_file, minalt=minalt, coordinates=coordinates, header=header)
 
     if run_serial:
-        for file in tqdm(filelist, desc="Serial processing"):
-            worker(file)
+        results = [worker(file) for file in tqdm(filelist, desc="Serial processing")]
     else:
         with ProcessPoolExecutor(max_workers=16) as executor:
-                    list(tqdm(executor.map(worker, filelist, chunksize=1),
-                            total=len(filelist), desc="Parallel processing"))
+            results = list(tqdm(executor.map(worker, filelist, chunksize=1),
+                                total=len(filelist), desc="Parallel processing"))
+
+    failed = [r for r in results if r is not None]
+    if failed:
+        print(f"\nFailed to process {len(failed)} file(s):")
+        for fname, err in failed:
+            print(f"  {fname}: {err}")
 
 if __name__ == "__main__":
     main()

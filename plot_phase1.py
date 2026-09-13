@@ -296,7 +296,8 @@ def plot_point(data_by_vert, filenames, args, vert_coord="altitude"):
         n_levels, 1,
         figsize=(width_cm * cm, height_cm*cm),
         sharex='col',
-        constrained_layout=True
+        constrained_layout=True,
+        squeeze=False
     )
     axes = axes.ravel()
 

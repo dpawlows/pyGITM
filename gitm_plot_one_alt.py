@@ -387,8 +387,8 @@ for file in filelist:
             xPos = Lons
             yPos = Lats
             if (len(Alts) > 1):
-                if (args["alt"] > Alts[nAlts-3]):
-                    iAlt = nAlts-3
+                if (args["alt"] >= Alts[nAlts-1]):
+                    iAlt = nAlts-1
                 elif (args["alt"] <= Alts[0]):
                     iAlt = 0
                 else:

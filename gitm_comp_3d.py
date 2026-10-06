@@ -11,7 +11,7 @@ from matplotlib.gridspec import GridSpec
 import matplotlib.ticker as mticker
 from pylab import cm
 from gitm_routines import *
-import re
+import argparse
 import sys
 
 rtod = 180.0/3.141592
@@ -33,110 +33,69 @@ plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
 def get_args(argv):
 
-    filelist = []
-    IsLog = 0
-    var = 15
-    alt = 400.0
-    lon = -100.0
-    lat = -100.0
-    tec = 0
-    cut = 'alt'
-    help = 0
-    winds = 0
-    diff = 0
-    min_val = None
-    max_val = None
-    cmap = 'plasma'
+    parser = argparse.ArgumentParser(
+        prog='gitm_comp_3d.py',
+        add_help=False,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description='Compare two GITM 3D files on a 2D cut. The 1st file is '
+                    'the perturbation and the\n2nd file is the baseline. By '
+                    'default the percent difference,\n'
+                    '100*(perturbation - baseline)/baseline, is plotted.',
+        epilog='Options that take a value accept either -opt=value or '
+               '-opt value.\nIf a file is given along with -h, the variables '
+               'in that file are listed.')
+    parser.add_argument('filelist', nargs='*', metavar='file',
+                        help='files to compare: perturbation file, then '
+                             'baseline file. Must be two.')
+    parser.add_argument('-h', '-help', action='store_true', dest='help',
+                        help='print this message')
+    parser.add_argument('-var', type=int, default=15, metavar='number',
+                        help='number of the variable to plot (default: 15)')
+    parser.add_argument('-ratio', action='store_true',
+                        help='plot the ratio perturbation/baseline instead '
+                             'of the percent difference')
+    parser.add_argument('-tec', action='store_true',
+                        help='compare TEC (overrides -var)')
+    parser.add_argument('-cut', choices=['alt', 'lat', 'lon'], default='alt',
+                        help='which cut you would like (default: alt)')
+    parser.add_argument('-alt', type=float, default=400.0, metavar='altitude',
+                        help='can be either alt in km or grid number '
+                             '(closest) (default: 400)')
+    parser.add_argument('-lat', type=float, default=-100.0, metavar='latitude',
+                        help='latitude in degrees (closest)')
+    parser.add_argument('-lon', type=float, default=-100.0,
+                        metavar='longitude',
+                        help='longitude in degrees (closest)')
+    parser.add_argument('-alog', action='store_true',
+                        help='plot the log of the plotted quantity')
+    parser.add_argument('-winds', '-wind', action='store_true', dest='winds',
+                        help='overplot wind differences')
+    parser.add_argument('-min', type=float, default=None, metavar='minimum',
+                        help='minimum value for the plot scale')
+    parser.add_argument('-max', type=float, default=None, metavar='maximum',
+                        help='maximum value for the plot scale')
+    parser.add_argument('-cmap', default='plasma', metavar='name',
+                        help='matplotlib colormap to use (default: plasma)')
 
-    for arg in argv:
+    args = parser.parse_args(argv[1:])
 
-        IsFound = 0
+    if (args.help):
+        parser.print_help()
+        if (len(args.filelist) > 0):
+            header = read_gitm_header(args.filelist)
+            print('')
+            print('variables:')
+            iVar = 0
+            for var in header["vars"]:
+                print(iVar,var)
+                iVar=iVar+1
+        exit()
 
-        if (not IsFound):
+    if (len(args.filelist) != 2):
+        parser.error('Can only compare 2 files.')
 
-            m = re.match(r'-var=(.*)',arg)
-            if m:
-                var = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-diff',arg)
-            if m:
-                diff = 1
-                IsFound = 1
-
-            m = re.match(r'-tec',arg)
-            if m:
-                var = 34
-                tec = 1
-                IsFound = 1
-
-            m = re.match(r'-alt=(.*)',arg)
-            if m:
-                alt = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-lat=(.*)',arg)
-            if m:
-                lat = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-lon=(.*)',arg)
-            if m:
-                lon = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-cut=(.*)',arg)
-            if m:
-                cut = m.group(1)
-                IsFound = 1
-
-            m = re.match(r'-alog',arg)
-            if m:
-                IsLog = 1
-                IsFound = 1
-
-            m = re.match(r'-h',arg)
-            if m:
-                help = 1
-                IsFound = 1
-
-            m = re.match(r'-wind',arg)
-            if m:
-                winds = 1
-                IsFound = 1
-
-            m = re.match(r'-min=(.*)',arg)
-            if m:
-                min_val = float(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-max=(.*)',arg)
-            if m:
-                max_val = float(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-cmap=(.*)',arg)
-            if m:
-                cmap = m.group(1)
-                IsFound = 1
-
-            if IsFound==0 and not(arg==argv[0]):
-                filelist.append(arg)
-
-    args = {'filelist':filelist,
-            'var':var,
-            'cut':cut,
-            'diff':diff,
-            'tec':tec,
-            'help':help,
-            'winds':winds,
-            'alt':alt,
-            'lat':lat,
-            'lon':lon,
-            'IsLog':IsLog,
-            'min':min_val,
-            'max':max_val,
-            'cmap':cmap}
+    if (args.tec):
+        args.var = 34
 
     return args
 
@@ -152,44 +111,14 @@ def get_args(argv):
 
 args = get_args(sys.argv)
 
-header = read_gitm_header(args["filelist"])
+header = read_gitm_header(args.filelist)
 
-if (args["help"]):
-
-    print('Usage : ')
-    print('gitm_plot_one_alt.py -var=N -tec -winds -cut=alt,lat,lon')
-    print('                     -alt=alt -lat=lat -lon=lon -alog ')
-    print('                     -help [*.bin or a file]')
-    print('   -help : print this message')
-    print('   -var=number : number is variable to plot')
-    print('   -cut=alt,lat,lon : which cut you would like')
-    print('   -alt=altitude : can be either alt in km or grid number (closest)')
-    print('   -lat=latitude : latitude in degrees (closest)')
-    print('   -lon=longitude: longitude in degrees (closest)')
-    print('   -alog : plot the log of the variable')
-    print('   -winds: overplot winds')
-    print('   -min=minimum : minimum value for the plot scale')
-    print('   -max=maximum : maximum value for the plot scale')
-    print('   -cmap=name : matplotlib colormap to use (default: plasma)')
-    print('   Non-KW args: files to plot. Must be two.')
-
-    iVar = 0
-    for var in header["vars"]:
-        print(iVar,var)
-        iVar=iVar+1
-
-    exit()
-
-filelist = args["filelist"]
-nFiles = len(filelist)
-if nFiles != 2:
-    print('Can only compare 2 files.')
-    exit()
-cut = args["cut"]
+filelist = args.filelist
+cut = args.cut
 vars = [0,1,2]
-vars.append(args["var"])
+vars.append(args.var)
 
-if (args["winds"]):
+if (args.winds):
     if (cut=='alt'):
         iUx_ = 16
         iUy_ = 17
@@ -204,7 +133,7 @@ if (args["winds"]):
     AllWindsX = []
     AllWindsY = []
 
-Var = header["vars"][args["var"]]
+Var = header["vars"][args.var]
 AllData2D = []
 AllAlts = []
 AllTimes = []
@@ -221,14 +150,14 @@ if (cut == 'alt'):
     xPos = Lons
     yPos = Lats
     if (len(Alts) > 1):
-        if (args["alt"] < 50):
-            iAlt = args["alt"]
+        if (args.alt < 50):
+            iAlt = int(args.alt)
         else:
-            if (args["alt"] > Alts[nAlts-3]):
+            if (args.alt > Alts[nAlts-3]):
                 iAlt = nAlts-3
             else:
                 iAlt = 2
-                while (Alts[iAlt] < args["alt"]):
+                while (Alts[iAlt] < args.alt):
                     iAlt=iAlt+1
     else:
         iAlt = 0
@@ -237,50 +166,55 @@ if (cut == 'alt'):
 if (cut == 'lat'):
     xPos = Lons
     yPos = Alts
-    if (args["lat"] < Lats[1]):
+    if (args.lat < Lats[1]):
         iLat = int(nLats/2)
     else:
-        if (args["lat"] > Lats[nLats-2]):
+        if (args.lat > Lats[nLats-2]):
             iLat = int(nLats/2)
         else:
             iLat = 2
-            while (Lats[iLat] < args["lat"]):
+            while (Lats[iLat] < args.lat):
                 iLat=iLat+1
     Lat = Lats[iLat]
 
 if (cut == 'lon'):
     xPos = Lats
     yPos = Alts
-    if (args["lon"] < Lons[1]):
+    if (args.lon < Lons[1]):
         iLon = int(nLons/2)
     else:
-        if (args["lon"] > Lons[nLons-2]):
+        if (args.lon > Lons[nLons-2]):
             iLon = int(nLons/2)
         else:
             iLon = 2
-            while (Lons[iLon] < args["lon"]):
+            while (Lons[iLon] < args.lon):
                 iLon=iLon+1
     Lon = Lons[iLon]
 
 AllTimes.append(data["time"])
 
-if (args["tec"]):
+if (args.tec):
     iAlt = 2
     tec = np.zeros((nLons, nLats))
+    tecperturb = np.zeros((nLons, nLats))
     for Alt in Alts:
         if (iAlt > 0 and iAlt < nAlts-3):
-            tec = tec + data[args["var"]][:,:,iAlt] * (Alts[iAlt+1]-Alts[iAlt-1])/2 * 1000.0
-            tecperturb = tecperturb + dataperturb[args["var"]][:,:,iAlt] * (Alts[iAlt+1]-Alts[iAlt-1])/2 * 1000.0
+            tec = tec + data[args.var][:,:,iAlt] * (Alts[iAlt+1]-Alts[iAlt-1])/2 * 1000.0
+            tecperturb = tecperturb + dataperturb[args.var][:,:,iAlt] * (Alts[iAlt+1]-Alts[iAlt-1])/2 * 1000.0
         iAlt=iAlt+1
-    AllData2D.append(tec/1e16)
+    base2D = tec/1e16
+    perturb2D = tecperturb/1e16
 else:
     if (cut == 'alt'):
-        AllData2D.append((dataperturb[args["var"]][:,:,iAlt]-data[args["var"]][:,:,iAlt])/data[args["var"]][:,:,iAlt])
+        base2D = data[args.var][:,:,iAlt]
+        perturb2D = dataperturb[args.var][:,:,iAlt]
     if (cut == 'lat'):
-        AllData2D.append((dataperturb[args["var"]][:,iLat,:]-data[args["var"]][:,iLat,:])/data[args["var"]][:,iLat,:])
+        base2D = data[args.var][:,iLat,:]
+        perturb2D = dataperturb[args.var][:,iLat,:]
     if (cut == 'lon'):
-        AllData2D.append((dataperturb[args["var"]][iLon,:,:]-data[args["var"]][iLon,:,:])/data[args["var"]][iLon,:,:])
-    if (args["winds"]):
+        base2D = data[args.var][iLon,:,:]
+        perturb2D = dataperturb[args.var][iLon,:,:]
+    if (args.winds):
         if (cut == 'alt'):
             AllWindsX.append(dataperturb[iUx_][:,:,iAlt]-data[iUx_][:,:,iAlt])
             AllWindsY.append(dataperturb[iUy_][:,:,iAlt]-data[iUy_][:,:,iAlt])
@@ -292,25 +226,29 @@ else:
             AllWindsY.append(dataperturb[iUy_][iLon,:,:]-data[iUy_][iLon,:,:])
 
 
+if (args.ratio):
+    AllData2D.append(perturb2D/base2D)
+else:
+    AllData2D.append((perturb2D-base2D)/base2D*100.0)
 
-AllData2D = np.array(AllData2D)*100.0
-if (args["winds"]):
+AllData2D = np.array(AllData2D)
+if (args.winds):
     AllWindsX = np.array(AllWindsX)
     AllWindsY = np.array(AllWindsY)
 
 Negative = 0
 
-AllData2D = np.log10(AllData2D) if (args['IsLog']) else AllData2D
+AllData2D = np.log10(AllData2D) if (args.alog) else AllData2D
 
 maxi  = np.max(AllData2D[0,2:-2,2:-2])*1.05
 mini  = np.min(AllData2D[0,2:-2,2:-2])*0.95
-if args["min"] is not None:
-    mini = args["min"]
-if args["max"] is not None:
-    maxi = args["max"]
+if args.min is not None:
+    mini = args.min
+if args.max is not None:
+    maxi = args.max
 #mini = 0
 #maxi=4
-if maxi == 0 and mini == 0:
+if not args.ratio and maxi == 0 and mini == 0:
     print("Error: There doesn't seem to be a difference between the data sets")
     print("are you sure the files are actually different?")
     exit()
@@ -354,8 +292,10 @@ maxX = (xPos[-2] + xPos[-3])/2
 minY = (yPos[ 1] + yPos[ 2])/2
 maxY = (yPos[-2] + yPos[-3])/2
 
-file = "var%2.2d_" % args["var"]
+file = "diff%2.2d_" % args.var
 file = file+cut
+if (args.ratio):
+    file = file+'_ratio'
 
 for time in AllTimes:
 
@@ -374,15 +314,15 @@ for time in AllTimes:
     print(mini)
     # if (mini >= 0):
     try:
-        cmap = cm.get_cmap(args["cmap"])
+        cmap = cm.get_cmap(args.cmap)
     except ValueError:
-        print("Error: invalid colormap '{}'. Use a valid matplotlib colormap name.".format(args["cmap"]))
+        print("Error: invalid colormap '{}'. Use a valid matplotlib colormap name.".format(args.cmap))
         exit()
     # else:
     #     cmap = cm.bwr
 
     d2d = np.transpose(AllData2D[i])
-    if (args["winds"]):
+    if (args.winds):
         Ux2d = np.transpose(AllWindsX[i])
         Uy2d = np.transpose(AllWindsY[i])
 
@@ -393,7 +333,7 @@ for time in AllTimes:
     cax = ax.pcolor(xPos, yPos, d2d, vmin=mini, vmax=maxi, shading='auto', cmap=cmap)
 
 
-    if (args["winds"]):
+    if (args.winds):
         ax.quiver(xPos,yPos,Ux2d,Uy2d)
     ax.set_ylim([minY,maxY])
     ax.set_xlim([minX,maxX])
@@ -416,7 +356,10 @@ for time in AllTimes:
 
     ax.set_title(title)
     cbar = fig.colorbar(cax, ax=ax, shrink = 0.75, pad=0.02)
-    cbar.set_label(Var+' % Difference',rotation=90)
+    if (args.ratio):
+        cbar.set_label(Var+' Ratio',rotation=90)
+    else:
+        cbar.set_label(Var+' % Difference',rotation=90)
 
     if (cut == 'alt'):
 

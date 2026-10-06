@@ -36,7 +36,6 @@ def get_args(argv):
     winds = 0
     vwinds = 0
     norm = 0
-    diff = 0
     minv = None
     maxv = None
     oco2 = 0
@@ -53,11 +52,6 @@ def get_args(argv):
             m = re.match(r'-var=(.*)',arg)
             if m:
                 var = int(m.group(1))
-                IsFound = 1
-
-            m = re.match(r'-diff',arg)
-            if m:
-                diff = 1
                 IsFound = 1
 
             m = re.match(r'-tec',arg)
@@ -157,7 +151,6 @@ def get_args(argv):
     args = {'filelist':filelist,
             'var':var,
             'cut':cut,
-            'diff':diff,
             'tec':tec,
             'help':help,
             'winds':winds,

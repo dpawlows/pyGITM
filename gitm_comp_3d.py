@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as dates
 from matplotlib.gridspec import GridSpec
 import matplotlib.ticker as mticker
+from matplotlib import colormaps
 from pylab import cm
 from gitm_routines import *
 import argparse
@@ -314,7 +315,7 @@ for time in AllTimes:
     print(mini)
     # if (mini >= 0):
     try:
-        cmap = cm.get_cmap(args.cmap)
+        cmap = colormaps[args.cmap]
     except ValueError:
         print("Error: invalid colormap '{}'. Use a valid matplotlib colormap name.".format(args.cmap))
         exit()

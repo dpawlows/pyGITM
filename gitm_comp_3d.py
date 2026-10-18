@@ -28,6 +28,11 @@ plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
 plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
 plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
 plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
+
+class PlainLogFormatter(mticker.LogFormatter):
+    # Label log-scale ticks as plain floats (0.8, 1, 1000) instead of 10^n
+    def _num_to_string(self, x, vmin, vmax):
+        return np.format_float_positional(float('%.6g' % x), trim='-')
 #-----------------------------------------------------------------------------
 #
 #-----------------------------------------------------------------------------
@@ -69,6 +74,16 @@ def get_args(argv):
                         help='longitude in degrees (closest)')
     parser.add_argument('-alog', action='store_true',
                         help='plot the log of the plotted quantity')
+    parser.add_argument('-log', action='store_true',
+                        help='use a logarithmic color scale')
+    parser.add_argument('-center', type=float, default=None, metavar='n',
+                        help='with -log, center the log color scale on n '
+                             '(e.g. 1 for -ratio) and use the RdBu_r '
+                             'colormap')
+    parser.add_argument('-mean', action='store_true',
+                        help='print the area-weighted mean of the ratio or '
+                             'percent difference and its value at the '
+                             'subsolar point (alt cut or -tec only)')
     parser.add_argument('-winds', '-wind', action='store_true', dest='winds',
                         help='overplot wind differences')
     parser.add_argument('-min', type=float, default=None, metavar='minimum',
@@ -95,6 +110,15 @@ def get_args(argv):
     if (len(args.filelist) != 2):
         parser.error('Can only compare 2 files.')
 
+    if (args.center is not None):
+        if (not args.log):
+            parser.error('-center requires -log.')
+        if (args.center <= 0):
+            parser.error('-center must be positive for a log color scale.')
+
+    if (args.mean and args.cut != 'alt' and not args.tec):
+        parser.error('-mean requires an altitude cut (-cut=alt) or -tec.')
+
     if (args.tec):
         args.var = 34
 
@@ -103,6 +127,44 @@ def get_args(argv):
 #-----------------------------------------------------------------------------
 #
 #-----------------------------------------------------------------------------
+
+def print_mean_and_subsolar(ratio, lons, lats, time, label, asPercent):
+    '''Print the area-weighted geometric mean of a lon x lat ratio
+    (perturbation/baseline) and its value at the subsolar grid cell
+    (minimum Mars SZA). If asPercent, both are reported as a percent
+    difference, 100*(ratio-1). Ghost cells are excluded.'''
+
+    import marstiming as mt
+
+    nGhost = 2
+    interior = ratio[nGhost:-nGhost, nGhost:-nGhost]
+    lonsIn = lons[nGhost:-nGhost]
+    latsIn = lats[nGhost:-nGhost]
+    weights = np.outer(np.gradient(lonsIn),
+                       np.gradient(latsIn) * np.cos(np.radians(latsIn)))
+
+    # The geometric mean needs positive ratios
+    good = np.isfinite(interior) & (interior > 0)
+    nBad = interior.size - np.count_nonzero(good)
+    if (nBad > 0):
+        print("Warning: {} cells with nonpositive or invalid ratios were "
+              "left out of the mean".format(nBad))
+    mean = np.exp(np.sum(np.log(interior[good]) * weights[good]) /
+                  np.sum(weights[good]))
+
+    lon2d, lat2d = np.meshgrid(lonsIn, latsIn, indexing='ij')
+    sza = mt.getSZAfromTime(mt.getMarsSolarGeometry(time), lon2d, lat2d)
+    iLon, iLat = np.unravel_index(np.argmin(sza), sza.shape)
+    subsolar = interior[iLon, iLat]
+
+    if (asPercent):
+        mean = 100.0 * (mean - 1.0)
+        subsolar = 100.0 * (subsolar - 1.0)
+
+    print("Area-weighted geometric mean {}: {:.6g}".format(label, mean))
+    print("{} at subsolar point (lon {:.2f}, lat {:.2f}, SZA {:.2f}): {:.6g}"
+          .format(label, lonsIn[iLon], latsIn[iLat], sza[iLon, iLat],
+                  subsolar))
 
 #-----------------------------------------------------------------------------
 #-----------------------------------------------------------------------------
@@ -233,6 +295,12 @@ else:
     AllData2D.append((perturb2D-base2D)/base2D*100.0)
 
 AllData2D = np.array(AllData2D)
+
+if (args.mean):
+    label = 'ratio' if (args.ratio) else '% difference'
+    print_mean_and_subsolar(perturb2D/base2D, Lons, Lats, data["time"],
+                            Var.strip()+' '+label, not args.ratio)
+
 if (args.winds):
     AllWindsX = np.array(AllWindsX)
     AllWindsY = np.array(AllWindsY)
@@ -253,6 +321,24 @@ if not args.ratio and maxi == 0 and mini == 0:
     print("Error: There doesn't seem to be a difference between the data sets")
     print("are you sure the files are actually different?")
     exit()
+
+if (args.log):
+    # A log scale can only show positive values; nonpositive cells are masked.
+    positive = AllData2D[0,2:-2,2:-2]
+    positive = positive[positive > 0]
+    if (positive.size == 0):
+        print("Error: no positive values to plot on a log color scale.")
+        print("(percent differences are often negative; try -ratio)")
+        exit()
+    if (mini <= 0):
+        mini = np.min(positive)*0.95
+    if (maxi <= 0):
+        maxi = np.max(positive)*1.05
+    if (args.center is not None):
+        # Symmetric in log space about the center value
+        factor = max(maxi/args.center, args.center/mini)
+        mini = args.center/factor
+        maxi = args.center*factor
 
 # if (mini < 0):
 #     Negative = 1
@@ -315,8 +401,11 @@ for time in AllTimes:
     print(mini)
     # if (mini >= 0):
     try:
-        cmap = colormaps[args.cmap]
-    except ValueError:
+        if (args.center is not None):
+            cmap = colormaps['RdBu_r']
+        else:
+            cmap = colormaps[args.cmap]
+    except (ValueError, KeyError):
         print("Error: invalid colormap '{}'. Use a valid matplotlib colormap name.".format(args.cmap))
         exit()
     # else:
@@ -331,7 +420,11 @@ for time in AllTimes:
     outfile = file+'_'+sTime+'.png'
 
     ax = fig.add_subplot()
-    cax = ax.pcolor(xPos, yPos, d2d, vmin=mini, vmax=maxi, shading='auto', cmap=cmap)
+    if (args.log):
+        cax = ax.pcolor(xPos, yPos, d2d, shading='auto', cmap=cmap,
+                        norm=cm.colors.LogNorm(vmin=mini, vmax=maxi))
+    else:
+        cax = ax.pcolor(xPos, yPos, d2d, vmin=mini, vmax=maxi, shading='auto', cmap=cmap)
 
 
     if (args.winds):
@@ -357,6 +450,9 @@ for time in AllTimes:
 
     ax.set_title(title)
     cbar = fig.colorbar(cax, ax=ax, shrink = 0.75, pad=0.02)
+    if (args.log):
+        cbar.ax.yaxis.set_major_formatter(PlainLogFormatter(minor_thresholds=(2, 0.5)))
+        cbar.ax.yaxis.set_minor_formatter(PlainLogFormatter(minor_thresholds=(2, 0.5)))
     if (args.ratio):
         cbar.set_label(Var+' Ratio',rotation=90)
     else:
